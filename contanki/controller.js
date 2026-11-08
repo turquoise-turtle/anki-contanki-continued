@@ -1,4 +1,4 @@
-let polling, connected_index, indices, ready, mock_index;
+let polling, poll_start, connected_index, indices, ready, mock_index;
 initialise();
 
 function initialise() {
@@ -40,8 +40,14 @@ function on_controller_connect() {
    }
 }
 
-function connect_controller(i) {
+function stop_polling() {
+   // The poll starts after a delay, so a pending start must be cancelled too.
+   window.clearTimeout(poll_start);
    window.clearInterval(polling);
+}
+
+function connect_controller(i) {
+   stop_polling();
    let con = window.navigator.getGamepads()[i];
    if (con == null) {
       bridgeCommand(
@@ -51,11 +57,14 @@ function connect_controller(i) {
    }
    bridgeCommand(`contanki::on_connect::${con.buttons.length}::${con.axes.length}::${con.id}`);
    connected_index = i;
-   setTimeout(() => (polling = setInterval(poll, 50)), 500);
+   poll_start = setTimeout(() => (polling = setInterval(poll, 50)), 500);
 }
 
 function on_controller_disconnect(event) {
-   window.clearInterval(polling);
+   stop_polling();
+   if (connected_index != null) {
+      bridgeCommand("contanki::on_disconnect::controller lost");
+   }
    connected_index = null;
    let controllers = window.navigator.getGamepads();
    for (let i = 0; i < controllers.length; i++) {

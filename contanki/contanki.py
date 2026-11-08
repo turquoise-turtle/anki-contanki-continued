@@ -30,6 +30,7 @@ from .profile import (
     find_profile,
 )
 from .actions import button_actions, release_actions, update_actions, SCROLL_FACTOR
+from .axis_buttons import AXIS_BUTTON_OFFSET, AxisButtons, axis_button_pressed
 
 from aqt import mw as _mw
 
@@ -66,6 +67,7 @@ class Contanki(AnkiWebView):
 
     def __init__(self, parent):
         super().__init__(parent=parent)
+        self.axis_buttons = AxisButtons()
         mw.addonManager.setConfigAction(__name__, self.on_config)
         self.menu_item = QAction("Controller Options", mw)
         qconnect(self.menu_item.triggered, self.on_config)
@@ -179,22 +181,32 @@ class Contanki(AnkiWebView):
             self.on_error("No buttons")
             return
 
-        if self.quick_select.is_shown:
-            self.update_quick_select(state, buttons, axes)
-            return
-
         changed = [(i, v) for i, v in enumerate(buttons) if v != self.buttons[i]]
         self.buttons = buttons
 
+        assert self.profile is not None
+        button_axes = [
+            axis
+            for axis, role in self.profile.axes_bindings.items()
+            if role == "Buttons"
+        ]
+        axis_changes = self.axis_buttons.update(axes, button_axes)
+
         if state == "config":
+            # The dialog highlights axes its own way; the tracker only has to keep up.
             self.handle_poll_in_config(axes, changed)
+            return
+
+        changed += axis_changes
+
+        if self.quick_select.is_shown:
+            self.update_quick_select(state, buttons, axes, changed)
             return
 
         for i, value in changed:
             self.do_action(state, i, not value)
 
-        if any(axes) and not self.quick_select.is_shown:
-            self.do_axes_actions(state, axes)
+        self.do_axes_actions(axes)
 
         assert self.overlay is not None
         if self.config["Overlays Always On"]:
@@ -255,39 +267,60 @@ class Contanki(AnkiWebView):
         for i, value in changed:
             self.icons.set_highlight(i, value)
 
+    @staticmethod
+    def input_pressed(index: int, buttons: list[bool], axes: list[float]) -> bool:
+        """Whether a button or axis button is held, whatever role its axis has."""
+        if index >= AXIS_BUTTON_OFFSET:
+            return axis_button_pressed(index, axes)
+        return index < len(buttons) and buttons[index]
+
     @if_connected
     def update_quick_select(
-        self, state: State, buttons: list[bool], axes: list[float]
+        self,
+        state: State,
+        buttons: list[bool],
+        axes: list[float],
+        changed: list[tuple[int, bool]],
     ) -> None:
-        """Update the quick select menu."""
+        """
+        Update the quick select menu. Other actions are not triggered while it is open,
+        but releasing a held Show Quick Select or pressing Toggle Quick Select closes it.
+        """
         assert self.profile is not None
         assert self.overlay is not None
         if not self.quick_select.is_shown:
             return
 
+        for index, pressed in changed:
+            action = self.profile.get(state, index)
+            if (action == "Show Quick Select" and not pressed) or (
+                action == "Toggle Quick Select" and pressed
+            ):
+                self.hide_quick_select()
+                return
+
+        dpad = self.profile.controller.dpad_buttons
         if (
             self.quick_select.settings["Select with D-Pad"]
-            and self.profile.controller.dpad_buttons is not None
-            and any(buttons[index] for index in self.profile.controller.dpad_buttons)
+            and dpad is not None
+            and any(self.input_pressed(index, buttons, axes) for index in dpad)
         ):
-            up, down, left, right = self.profile.controller.dpad_buttons
-            dpad_status = buttons[up], buttons[down], buttons[left], buttons[right]
-            self.quick_select.dpad_select(state, dpad_status)
-            for index in self.profile.controller.dpad_buttons:
-                self.buttons[index] = buttons[index]
+            up, down, left, right = (
+                self.input_pressed(index, buttons, axes) for index in dpad
+            )
+            self.quick_select.dpad_select(state, (up, down, left, right))
         elif self.profile.controller.has_stick:
             self.quick_select.stick_select(state, axes[0], axes[1])
 
+        pressed_now = {index for index, pressed in changed if pressed}
         if (
             (stick_button := self.profile.controller.stick_button) is not None
             and self.quick_select.settings["Do Action on Stick Press"]
-            and buttons[stick_button]
+            and stick_button in pressed_now
         ):
             self.quick_select.disappear(True)
-            self.buttons[stick_button] = buttons[stick_button]
-        elif buttons[0]:
+        elif 0 in pressed_now:
             self.quick_select.disappear(True)
-            self.buttons[0] = buttons[0]
 
     @if_connected
     def show_quick_select(self, state: State) -> None:
@@ -305,7 +338,6 @@ class Contanki(AnkiWebView):
     def hide_quick_select(self) -> None:
         """Hides the quick select menu and the overlays if they are shown."""
         self.quick_select.disappear()
-        self.axes = [True] * self.len_axes
         if self.overlay is not None:
             self.overlay.disappear()
 
@@ -355,20 +387,18 @@ class Contanki(AnkiWebView):
                 tooltip("Error: " + repr(err))
 
     @if_connected
-    def do_axes_actions(self, state: State, axes: list[float]) -> None:
-        """Handles actions for axis movement."""
+    def do_axes_actions(self, axes: list[float]) -> None:
+        """Moves the cursor or scrolls for axes bound to those roles."""
         assert self.profile is not None
         movements: dict[str, float] = defaultdict(float)
         for axis, value in enumerate(axes):
             if axis not in self.profile.axes_bindings:
                 continue
             action = self.profile.axes_bindings[axis]
-            if action == "Buttons":
-                if abs(value) > 0.5 and not self.axes[axis]:
-                    self.do_action(state, axis * 2 + (value > 0) + 100)
-                self.axes[axis] = abs(value) > 0.5
-            else:
+            if action != "Buttons" and value:
                 movements[action] += -value if self.profile.invert_axis[axis] else value
+        if not any(movements.values()):
+            return
         try:
             move_mouse(movements["Cursor Horizontal"], movements["Cursor Vertical"])
             scroll(movements["Scroll Horizontal"], movements["Scroll Vertical"])
@@ -392,6 +422,7 @@ class Contanki(AnkiWebView):
             dbg(
                 f"identify_controller returned None for {controller_id}, {buttons}, {axes}"
             )
+            self.reject_controller()
             return
         else:
             controller = _controller[0] or controller_id
@@ -402,6 +433,7 @@ class Contanki(AnkiWebView):
         if self.profile is None:
             dbg(f"Error: get_profile returned None for {profile}")
             tooltip(f"Error: Unable to load profile {profile}")
+            self.reject_controller()
             return
 
         self.len_buttons, self.len_axes = buttons, axes
@@ -414,17 +446,27 @@ class Contanki(AnkiWebView):
         self.connected = True
         tooltip(f"{controller} Connected")
 
-    def on_disconnect(self, err, *_) -> None:
+    def reject_controller(self) -> None:
+        """
+        Stops polling a controller that could not be set up. Otherwise every poll would
+        report an error, which reconnects the same controller and fails again, endlessly.
+        """
+        self.connected = False
+        self.eval("stop_polling()")
+
+    def on_disconnect(self, err="", *_) -> None:
         """Called when a controller is disconnected through the JavaScript interface"""
         assert mw is not None
         dbg(f"Disconnected: {err}")
+        was_connected = self.connected
         if self.controllers is not None:
             for controller in self.controllers:
                 mw.form.menuTools.removeAction(controller)
         self.controllers = list()
         self.reset_controller()
         self.update_debug_info()
-        tooltip("Controller Disconnected")
+        if was_connected:
+            tooltip("Controller Disconnected")
         self.connected = False
 
     def reset_controller(self) -> None:
@@ -435,6 +477,10 @@ class Contanki(AnkiWebView):
         mw.form.menuTools.removeAction(self.menu_item)
         self.buttons = []
         self.axes = []
+        self.axis_buttons.reset()
+        # A held smooth scroll would otherwise carry on once a controller reconnects.
+        self.scroll_up = False
+        self.scroll_down = False
         self.profile = None
         self.update_debug_info()
 

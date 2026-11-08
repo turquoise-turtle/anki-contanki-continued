@@ -114,26 +114,21 @@ class Controller:
                 buttons.append(i + 100)
         return buttons
 
-    # FIXME: Needs to handle axis dpads
     def get_dpad_buttons(self) -> tuple[int, int, int, int] | None:
-        """Get the indicies of the D-pad buttons."""
+        """
+        Get the indices of the D-pad buttons (up, down, left, right). Controllers such
+        as the 8BitDo Micro report the D-pad as axes, giving axis button indices (100+).
+        """
         if not self.has_dpad:
             return None
-        indicies, buttons = zip(*self.buttons.items())
-        if (
-            "D-Pad Up" in buttons
-            and "D-Pad Down" in buttons
-            and "D-Pad Left" in buttons
-            and "D-Pad Right" in buttons
-        ):
-            return (
-                indicies[buttons.index("D-Pad Up")],
-                indicies[buttons.index("D-Pad Down")],
-                indicies[buttons.index("D-Pad Left")],
-                indicies[buttons.index("D-Pad Right")],
-            )
-        else:
-            return None
+        names = ("D-Pad Up", "D-Pad Down", "D-Pad Left", "D-Pad Right")
+        for inputs, offset in ((self.buttons, 0), (self.axis_buttons, 100)):
+            indices: dict[str, int] = {}
+            for index, name in inputs.items():
+                indices.setdefault(name, index)
+            if all(name in indices for name in names):
+                return tuple(indices[name] + offset for name in names)  # type: ignore
+        return None
 
     def get_stick_button(self) -> int | None:
         """Get the index of the stick button."""
