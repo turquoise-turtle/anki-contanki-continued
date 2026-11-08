@@ -15,9 +15,6 @@ import json
 import stat
 from typing import Any
 import shutil
-import toml
-import tomlkit
-import tomlkit.exceptions
 
 from .utils import (
     State,
@@ -170,6 +167,9 @@ class Profile:
 
     def to_toml(self) -> str:
         """Returns the profile as a TOML string."""
+        # Anki does not bundle tomlkit, and the add-on loads without it.
+        import tomlkit  # pylint: disable=import-outside-toplevel
+
         result = tomlkit.document()
         result.add(tomlkit.comment("Contanki Profile"))
         result.add("name", tomlkit.item(self.name))
@@ -203,6 +203,9 @@ class Profile:
     @staticmethod
     def from_toml(toml_str: str) -> Profile | None:
         """Loads the profile from a TOML string."""
+        import tomlkit  # pylint: disable=import-outside-toplevel
+        import tomlkit.exceptions  # pylint: disable=import-outside-toplevel
+
         try:
             toml = tomlkit.loads(toml_str)
         except tomlkit.exceptions.ParseError as err:
