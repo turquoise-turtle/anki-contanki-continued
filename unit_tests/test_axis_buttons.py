@@ -78,3 +78,69 @@ def test_axis_button_pressed():
     assert not axis_button_pressed(UP, axes)
     assert not axis_button_pressed(DOWN, axes)
     assert not axis_button_pressed(140, axes)
+
+
+decode_hat = axis_buttons.decode_hat
+HatSwitches = axis_buttons.HatSwitches
+MICRO_DPAD = (UP, DOWN, LEFT, RIGHT)
+
+
+def hat(direction):
+    """Chromium's value for a hat pushed in direction 0 (up) to 7 (up-left), 8 for released."""
+    return 2 * direction / 7 - 1
+
+
+def test_decode_hat_directions():
+    assert [decode_hat(hat(v)) for v in range(8)] == [
+        (0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)
+    ]
+    assert decode_hat(hat(8)) == (0, 0)
+
+
+def micro_with_hat(value):
+    """Micro on macOS 26 as reported in issue 154: D-pad on a hat in the last axis."""
+    return [0.0] * 9 + [value]
+
+
+def test_hat_becomes_the_micro_dpad():
+    hats = HatSwitches()
+    tracker = AxisButtons()
+    buttons = [False] * 16
+
+    def step(value):
+        axes = micro_with_hat(value)
+        hats.apply(buttons, axes, MICRO_DPAD)
+        return tracker.update(axes, [0, 1])
+
+    # Released hat (9/7) used to read as held; now it is nothing.
+    assert step(hat(8)) == []
+    assert step(hat(2)) == [(RIGHT, True)]
+    assert step(hat(8)) == [(RIGHT, False)]
+    assert step(hat(4)) == [(DOWN, True)]
+    assert step(hat(5)) == [(LEFT, True)]
+    assert step(hat(8)) == [(LEFT, False), (DOWN, False)]
+
+
+def test_hat_axis_is_neutralised_without_a_dpad():
+    hats = HatSwitches()
+    axes = micro_with_hat(hat(8))
+    hats.apply([], axes, None)
+    assert axes == [0.0] * 10
+
+
+def test_hat_presses_dpad_buttons():
+    hats = HatSwitches()
+    buttons = [False] * 16
+    hats.apply(buttons, [0.0, 0.0, hat(8)], (12, 13, 14, 15))
+    axes = [0.0, 0.0, hat(0)]
+    hats.apply(buttons, axes, (12, 13, 14, 15))
+    assert buttons[12] and not any(buttons[13:16])
+    assert axes == [0.0, 0.0, 0.0]
+
+
+def test_ordinary_axes_are_left_alone():
+    hats = HatSwitches()
+    axes = [1.0, -1.0, 0.5]
+    hats.apply([], axes, MICRO_DPAD)
+    assert axes == [1.0, -1.0, 0.5]
+    assert not hats.hat_axes

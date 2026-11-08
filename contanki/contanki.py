@@ -31,7 +31,12 @@ from .profile import (
     find_profile,
 )
 from .actions import button_actions, release_actions, update_actions
-from .axis_buttons import AXIS_BUTTON_OFFSET, AxisButtons, axis_button_pressed
+from .axis_buttons import (
+    AXIS_BUTTON_OFFSET,
+    AxisButtons,
+    HatSwitches,
+    axis_button_pressed,
+)
 
 from aqt import mw as _mw
 
@@ -70,6 +75,7 @@ class Contanki(AnkiWebView):
     def __init__(self, parent):
         super().__init__(parent=parent)
         self.axis_buttons = AxisButtons()
+        self.hats = HatSwitches()
         mw.addonManager.setConfigAction(__name__, self.on_config)
         self.menu_item = QAction("Controller Options", mw)
         qconnect(self.menu_item.triggered, self.on_config)
@@ -228,6 +234,8 @@ class Contanki(AnkiWebView):
         axes = [float(axis) for axis in input_axes.split(",")]
         while len(self.buttons) < len(buttons):
             self.buttons.append(buttons[len(self.buttons)])
+        assert self.profile is not None
+        self.hats.apply(buttons, axes, self.profile.controller.dpad_buttons)
         self.controller_specific_fixes(buttons, axes)
         return buttons, axes
 
@@ -481,6 +489,7 @@ class Contanki(AnkiWebView):
         self.buttons = []
         self.axes = []
         self.axis_buttons.reset()
+        self.hats.reset()
         # A held smooth scroll would otherwise carry on once a controller reconnects.
         self.scroll_up = False
         self.scroll_down = False

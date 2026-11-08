@@ -91,10 +91,10 @@ def send(mw, message: str) -> None:
     assert handled == (True, None)
 
 
-def poll(mw, pressed=(), x=0.0, y=0.0) -> None:
+def poll(mw, pressed=(), x=0.0, y=0.0, axes=None) -> None:
     """One poll from a Micro: 16 buttons, 10 axes, D-pad on axes 0 and 1."""
     buttons = ",".join("true" if i in pressed else "false" for i in range(16))
-    axes = ",".join(str(v) for v in [x, y] + [0.0] * 8)
+    axes = ",".join(str(v) for v in (axes or [x, y] + [0.0] * 8))
     send(mw, f"poll::{buttons}::{axes}")
 
 
@@ -272,3 +272,23 @@ def test_scroll_down_in_the_reviewer(micro, mw):
     scrolled, view = eval_js(mw.web, "[window.scrollY, window.innerHeight]")
     mw.moveToState("deckBrowser")
     assert abs(scrolled - view / 2) <= 1
+
+
+def test_hat_switch_dpad_on_macos(micro, mw):
+    # Issue 154: on macOS 26 the Micro reports its D-pad as a hat in one axis, which
+    # rests at 9/7 and used to read as held.
+    def hat(direction):
+        return [0.0] * 9 + [2 * direction / 7 - 1]
+
+    bind(micro, 101, "Scroll Down Smooth")  # D-pad right
+    bind(micro, 102, "Scroll Up Smooth")  # D-pad up
+    poll(mw, axes=hat(8))
+    assert not micro.scroll_up and not micro.scroll_down
+    poll(mw, axes=hat(2))
+    assert micro.scroll_down
+    poll(mw, axes=hat(8))
+    assert not micro.scroll_down
+    poll(mw, axes=hat(0))
+    assert micro.scroll_up
+    poll(mw, axes=hat(8))
+    assert not micro.scroll_up
