@@ -29,7 +29,7 @@ from .funcs import (
     build_cycle_flag,
     collapse_deck,
     choose_deck,
-    scroll_build,
+    page_scroll_build,
     hide_cursor,
     select,
     click,
@@ -45,7 +45,6 @@ from .funcs import (
 )
 
 assert mw is not None
-SCROLL_FACTOR = 50 if is_mac else 5
 
 
 def check_filter(func: Callable) -> Callable:
@@ -103,8 +102,8 @@ button_actions: dict[str, Callable[[], Any]] = {
     "Down":                     partial(key_press, Qt.Key.Key_Down),
     "Up by 10":                 partial(key_press, Qt.Key.Key_Up, Ctrl),
     "Down by 10":               partial(key_press, Qt.Key.Key_Down, Ctrl),
-    "Scroll Up":                partial(scroll_build(), 0, -SCROLL_FACTOR),
-    "Scroll Down":              partial(scroll_build(), 0, SCROLL_FACTOR),
+    "Scroll Up":                partial(page_scroll_build(), -1),
+    "Scroll Down":              partial(page_scroll_build(), 1),
     "Options":                  on_options,
     "Zoom In":                  zoom_in,
     "Zoom Out":                 zoom_out,
@@ -178,8 +177,9 @@ release_actions: dict[str, Callable[[], Any]] = {
 def update_actions():
     """Update funcs to account for config changes."""
     button_actions["Flag"] = build_cycle_flag()
-    button_actions["Scroll Up"] = partial(scroll_build(), 0, -SCROLL_FACTOR)
-    button_actions["Scroll Down"] = partial(scroll_build(), 0, SCROLL_FACTOR)
+    page_scroll = page_scroll_build()
+    button_actions["Scroll Up"] = partial(page_scroll, -1)
+    button_actions["Scroll Down"] = partial(page_scroll, 1)
     button_actions["Scroll Up Smooth"] = partial(mw.contanki.smooth_scroll, True, True)  # type: ignore
     button_actions["Scroll Down Smooth"] = partial(mw.contanki.smooth_scroll, False, True)  # type: ignore
     release_actions["Scroll Up Smooth"] = partial(mw.contanki.smooth_scroll, True, False)  # type: ignore

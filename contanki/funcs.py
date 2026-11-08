@@ -187,20 +187,98 @@ def tab(value: float = 1) -> None:
         key_press(Qt.Key.Key_Tab)
 
 
+# Scrolls the scrollable box under the middle of the view if there is one (an AMBOSS
+# pop-up, or a note type whose content scrolls inside a container), else the page. If the
+# page itself cannot scroll, the largest scrollable box is used instead. With byPage, the
+# distances are fractions of the scrolled box's visible size rather than pixels.
+_SCROLL_JS = """
+(function (dx, dy, byPage) {
+    const page = document.scrollingElement || document.documentElement;
+    function overflows(el) {
+        return el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth;
+    }
+    function canScroll(el) {
+        if (!overflows(el)) return false;
+        const style = getComputedStyle(el);
+        return /auto|scroll|overlay/.test(style.overflowY + " " + style.overflowX);
+    }
+    let target = null;
+    let el = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+    for (; el && el !== page && el !== document.body; el = el.parentElement) {
+        if (canScroll(el)) {
+            target = el;
+            break;
+        }
+    }
+    if (!target && !overflows(page) && document.body) {
+        let largest = 0;
+        for (const box of [document.body, ...document.body.querySelectorAll("*")]) {
+            const area = box.clientWidth * box.clientHeight;
+            if (area > largest && canScroll(box)) {
+                largest = area;
+                target = box;
+            }
+        }
+    }
+    target = target || page;
+    const height = target === page ? innerHeight : target.clientHeight;
+    const width = target === page ? innerWidth : target.clientWidth;
+    target.scrollBy(byPage ? dx * width : dx, byPage ? dy * height : dy);
+})(%r, %r, %s)
+"""
+
+# Upper bound of the Scroll Speed option; at this speed Scroll Up and Down move one whole
+# view per press.
+MAX_SCROLL_SPEED = 20
+
+
+def scroll_by(x: float, y: float, by_page: bool = False) -> None:
+    """Scrolls the main window's web view by pixels, or by fractions of the view."""
+    mw.web.eval(_SCROLL_JS % (float(x), float(y), "true" if by_page else "false"))
+
+
+def get_scroll_speed(config: dict) -> int:
+    """The Scroll Speed option, limited to 1 to MAX_SCROLL_SPEED."""
+    return max(1, min(MAX_SCROLL_SPEED, int(config["Scroll Speed"])))
+
+
 def scroll_build() -> Callable[[float, float], None]:
-    """Builds a function that simulates scrolling, accounting for user settings."""
+    """Builds the function that scrolls for an axis, accounting for user settings."""
     if mw is None:  # for out of anki profile tests
         return lambda x, y: None
     config = get_config()
-    speed = config["Scroll Speed"] / 10
+    speed = get_scroll_speed(config) / 10
     deadzone = config["Stick Deadzone"] / 100
 
     def _scroll(x: float, y: float) -> None:  # pylint: disable=invalid-name
         if abs(x) + abs(y) < deadzone:
             return
-        mw.web.eval(f"window.scrollBy({quad_curve(x*speed)}, {quad_curve(y*speed)})")
+        scroll_by(quad_curve(x * speed), quad_curve(y * speed))
 
     return _scroll
+
+
+def page_scroll_build() -> Callable[[int], None]:
+    """
+    Builds the function behind Scroll Up and Scroll Down, which move a share of the
+    view per press: a twentieth for each step of Scroll Speed.
+    """
+    if mw is None:  # for out of anki profile tests
+        return lambda direction: None
+    share = get_scroll_speed(get_config()) / MAX_SCROLL_SPEED
+    return lambda direction: scroll_by(0, direction * share, by_page=True)
+
+
+def smooth_scroll_build() -> Callable[[int], None]:
+    """
+    Builds the function behind Scroll Up Smooth and Scroll Down Smooth, called on every
+    controller poll (20 times a second) while the button is held: Scroll Speed pixels
+    per poll.
+    """
+    if mw is None:  # for out of anki profile tests
+        return lambda direction: None
+    step = get_scroll_speed(get_config())
+    return lambda direction: scroll_by(0, direction * step)
 
 
 def move_mouse_build() -> Callable[[float, float], None]:

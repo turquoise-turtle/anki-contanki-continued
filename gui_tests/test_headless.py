@@ -163,6 +163,8 @@ def test_quick_select_follows_axis_dpad(micro, mw):
     assert micro.quick_select.is_shown
     poll(mw, y=-1.0)  # D-pad up selects the top item
     assert micro.quick_select.current_action == micro.quick_select.actions["deckBrowser"][0]
+    # That item is Quit, which closing the menu would run.
+    micro.quick_select.current_action = ""
     poll(mw)
     poll(mw, pressed={7})
     assert not micro.quick_select.is_shown
@@ -187,3 +189,86 @@ def test_unusable_controller_is_rejected_quietly(mw):
     assert not mw.contanki.connected
     # A stray poll from before polling stopped must not raise.
     poll(mw)
+
+
+def eval_js(web, expression: str):
+    result = {}
+    web.evalWithCallback(expression, lambda value: result.setdefault("value", value))
+    wait_until(lambda: "value" in result, what=f"JavaScript result of {expression!r}")
+    return result["value"]
+
+
+def load_page(mw, body: str) -> None:
+    """Replaces the main web view's content and scrolls everything back to the top."""
+    js_body = body.replace("\\", "\\\\").replace("`", "\\`")
+    eval_js(mw.web, f"document.body.innerHTML = `{js_body}`; window.scrollTo(0, 0); 1")
+
+
+TALL = '<div style="height: 5000px"></div>'
+FULL_SCREEN_BOX = (
+    '<div id="box" style="position: fixed; inset: 0; overflow: auto">' + TALL + "</div>"
+)
+CORNER_BOX = (
+    '<div id="box" style="width: 100px; height: 100px; overflow: auto">' + TALL + "</div>"
+)
+
+
+def test_scroll_down_moves_half_a_view_at_default_speed(micro, mw):
+    # Issue 137: Scroll Down used to jump to the bottom on macOS.
+    bind(micro, 103, "Scroll Down")
+    load_page(mw, TALL)
+    poll(mw, y=1.0)
+    poll(mw)
+    scrolled, view = eval_js(mw.web, "[window.scrollY, window.innerHeight]")
+    assert abs(scrolled - view / 2) <= 1
+
+
+def test_scroll_moves_a_full_screen_container(micro, mw):
+    # Issue 155: note types and pop-ups that scroll inside a box did not scroll.
+    bind(micro, 103, "Scroll Down")
+    load_page(mw, FULL_SCREEN_BOX)
+    poll(mw, y=1.0)
+    poll(mw)
+    scrolled, view = eval_js(
+        mw.web, "[document.getElementById('box').scrollTop, document.getElementById('box').clientHeight]"
+    )
+    assert abs(scrolled - view / 2) <= 1
+
+
+def test_scroll_falls_back_to_largest_box_when_page_cannot_scroll(micro, mw):
+    bind(micro, 103, "Scroll Down")
+    load_page(mw, CORNER_BOX)
+    poll(mw, y=1.0)
+    poll(mw)
+    assert eval_js(mw.web, "document.getElementById('box').scrollTop") == 50
+
+
+def test_smooth_scroll_moves_a_steady_step_per_poll(micro, mw):
+    bind(micro, 103, "Scroll Down Smooth")
+    load_page(mw, TALL)
+    poll(mw, y=1.0)
+    poll(mw, y=1.0)
+    poll(mw)
+    poll(mw)
+    # Scroll Speed 10: 10 px per poll while held, nothing after release.
+    assert eval_js(mw.web, "window.scrollY") == 20
+
+
+def test_scroll_down_in_the_reviewer(micro, mw):
+    model = mw.col.models.by_name("Basic")
+    note = mw.col.new_note(model)
+    note["Front"] = '<div style="height: 5000px">tall card</div>'
+    mw.col.add_note(note, mw.col.decks.id("Default"))
+    mw.col.decks.select(mw.col.decks.id("Default"))
+    mw.moveToState("review")
+    wait_until(
+        lambda: mw.state == "review"
+        and eval_js(mw.web, "document.documentElement.scrollHeight") > 4000,
+        what="the tall card to show",
+    )
+    bind(micro, 103, "Scroll Down")
+    poll(mw, y=1.0)
+    poll(mw)
+    scrolled, view = eval_js(mw.web, "[window.scrollY, window.innerHeight]")
+    mw.moveToState("deckBrowser")
+    assert abs(scrolled - view / 2) <= 1

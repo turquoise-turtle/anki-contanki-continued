@@ -39,7 +39,7 @@ from aqt.utils import showInfo, getText, askUser
 from aqt import mw as _mw
 
 from .controller import get_updated_controller_list, Controller, DEFAULT_CONTROLLERS
-from .funcs import get_config, get_debug_str
+from .funcs import MAX_SCROLL_SPEED, get_config, get_debug_str
 from .profile import (
     Profile,
     create_profile,
@@ -264,6 +264,8 @@ class OptionsPage(QWidget):
             elif isinstance(value, int):
                 widget = QSpinBox(self)
                 widget.setMinimumWidth(45)
+                if key == "Scroll Speed":
+                    widget.setRange(1, MAX_SCROLL_SPEED)
                 widget.setValue(value)
             else:
                 continue

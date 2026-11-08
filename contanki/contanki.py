@@ -20,6 +20,7 @@ from .funcs import (
     get_state,
     move_mouse_build,
     scroll_build,
+    smooth_scroll_build,
 )
 from .utils import State, get_file, DEBUG, dbg
 from .overlay import ControlsOverlay
@@ -29,7 +30,7 @@ from .profile import (
     get_profile,
     find_profile,
 )
-from .actions import button_actions, release_actions, update_actions, SCROLL_FACTOR
+from .actions import button_actions, release_actions, update_actions
 from .axis_buttons import AXIS_BUTTON_OFFSET, AxisButtons, axis_button_pressed
 
 from aqt import mw as _mw
@@ -39,6 +40,7 @@ mw = _mw
 
 move_mouse = move_mouse_build()
 scroll = scroll_build()
+smooth_scroll_step = smooth_scroll_build()
 
 
 class Contanki(AnkiWebView):
@@ -121,6 +123,7 @@ class Contanki(AnkiWebView):
         update_actions()
         globals()["move_mouse"] = move_mouse_build()
         globals()["scroll"] = scroll_build()
+        globals()["smooth_scroll_step"] = smooth_scroll_build()
         self.custom_actions = get_custom_actions()
 
     def on_config(self) -> None:
@@ -213,9 +216,9 @@ class Contanki(AnkiWebView):
             self.overlay.appear(state)
 
         if self.scroll_up:
-            scroll(0, -SCROLL_FACTOR / 100)
+            smooth_scroll_step(-1)
         elif self.scroll_down:
-            scroll(0, SCROLL_FACTOR / 100)
+            smooth_scroll_step(1)
 
     def parse_controller_inputs(
         self, input_buttons: str, input_axes: str
