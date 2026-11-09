@@ -118,12 +118,14 @@ class ControlsOverlay:
 
     def close(self):
         """
-        Closes the overlay. Needed because if self.always_shown is True,
-        the overlay will remain open even after being replaced by an
-        updated instance.
+        Closes the overlay and deletes its widgets. Needed when a new profile replaces
+        it: otherwise an always-shown overlay stays on screen, and every replaced
+        overlay's widgets stay in memory.
         """
         self.always_shown = False
         self.disappear()
+        self.left.deleteLater()
+        self.right.deleteLater()
 
 
 class OverlayItem(QWidget):

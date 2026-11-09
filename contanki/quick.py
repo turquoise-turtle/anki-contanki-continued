@@ -4,6 +4,7 @@ Quick select menu.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from math import atan, sin, cos, pi, tau, sqrt
 from typing import Any
 
@@ -51,56 +52,64 @@ SELECTED_DARK = """
 """
 
 
+QUICK_SELECT_STATES = ("review", "deckBrowser", "overview")
+
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "Enable Quick Select": True,
+    "Select with Stick": True,
+    "Select with D-Pad": True,
+    "Do Action on Release": True,
+    "Do Action on Stick Press": True,
+    "Do Action on Stick Flick": False,
+    "actions": {state: [] for state in QUICK_SELECT_STATES},
+}
+
+
 class QuickSelectMenu:
     """Quick select menu allowing user to access less common actions."""
 
     # pylint: disable=invalid-name
-    settings = {
-        "Enable Quick Select": True,
-        "Select with Stick": True,
-        "Select with D-Pad": True,
-        "Do Action on Release": True,
-        "Do Action on Stick Press": True,
-        "Do Action on Stick Flick": False,
-        "actions": {
-            "review": [],
-            "deckBrowser": [],
-            "overview": [],
-        },
-    }
-    buttons: dict[str, list[QuickSelectButton]] = {
-        "review": [],
-        "deckBrowser": [],
-        "overview}": [],
-    }
-    positions: dict[str, list[tuple[float, float]]] = {
-        "review": [],
-        "deckBrowser": [],
-        "overview}": [],
-    }
     CENTRE_SIZE = 150
     centre = QLabel(mw)
     centre.setAlignment(Qt.AlignmentFlag.AlignCenter)
     centre.hide()
-    config = get_config()
-    countdown = -1
-    is_shown = False
-    current_action = ""
-    dpad_pressed = False
     activation_distance = 0.75
 
     def __init__(self, contanki, settings: dict[str, Any]):
         self.is_active = contanki is not None
         self.contanki = contanki
-        self.settings.update(settings)
+        self.config = get_config()
+        self.countdown = -1
+        self.is_shown = False
+        self.current_action = ""
+        self.dpad_pressed = False
 
-        self.actions: dict[str, list[str]] = self.settings["actions"]  # type: ignore
-        for state in ("review", "deckBrowser", "overview"):
-            self.actions[state] = self.actions[state][:8]  # Maximum of 8 actions
-            self.buttons[state] = [
-                QuickSelectButton(mw, action) for action in self.actions[state]
-            ]
-            self.positions[state] = self.set_geometry(self.actions[state])
+        # Copied so that one profile's settings never leak into another's menu.
+        self.settings: dict[str, Any] = deepcopy(DEFAULT_SETTINGS)
+        self.settings.update(deepcopy(settings))
+        self.actions: dict[str, list[str]] = {
+            state: list(self.settings["actions"].get(state, []))[:8]  # at most 8 actions
+            for state in QUICK_SELECT_STATES
+        }
+        self.buttons: dict[str, list[QuickSelectButton]] = {
+            state: [QuickSelectButton(mw, action) for action in self.actions[state]]
+            for state in QUICK_SELECT_STATES
+        }
+        self.positions: dict[str, list[tuple[float, float]]] = {
+            state: self.set_geometry(self.actions[state]) for state in QUICK_SELECT_STATES
+        }
+
+    def destroy(self) -> None:
+        """Removes the menu's widgets; used when a new profile replaces this menu."""
+        if self.is_shown:
+            self.centre.hide()
+        for buttons in self.buttons.values():
+            for button in buttons:
+                button.hide()
+                button.deleteLater()
+        self.buttons = {state: [] for state in QUICK_SELECT_STATES}
+        self.is_shown = False
+        self.is_active = False
 
     def update_icon(self, controller: Controller):
         """Update the centre icon of the quick select menu."""
@@ -145,8 +154,6 @@ class QuickSelectMenu:
                 # + height * int(x) / 2
                 + (60 if len(actions) > 4 else 40)
             )
-        print(list(zip(angles, distances)))
-
         return list(zip(angles, distances))
 
     def get_geometry(self, state: State) -> list[QPoint]:

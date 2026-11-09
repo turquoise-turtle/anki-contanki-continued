@@ -7,6 +7,7 @@ No gamepad is attached: the JavaScript side is bypassed and the messages it woul
 ("contanki::on_connect::…", "contanki::poll::…") are fed straight to the Python handler.
 """
 
+import json
 import os
 import shutil
 import sys
@@ -243,15 +244,35 @@ def test_scroll_falls_back_to_largest_box_when_page_cannot_scroll(micro, mw):
     assert eval_js(mw.web, "document.getElementById('box').scrollTop") == 50
 
 
-def test_smooth_scroll_moves_a_steady_step_per_poll(micro, mw):
+def test_smooth_scroll_keeps_going_while_held_and_stops_on_release(micro, mw):
     bind(micro, 103, "Scroll Down Smooth")
     load_page(mw, TALL)
-    poll(mw, y=1.0)
-    poll(mw, y=1.0)
+    poll(mw, y=1.0)  # one report: the controller only reports changes
+    pump(0.5)
     poll(mw)
-    poll(mw)
-    # Scroll Speed 10: 10 px per poll while held, nothing after release.
-    assert eval_js(mw.web, "window.scrollY") == 20
+    held = eval_js(mw.web, "window.scrollY")
+    # Scroll Speed 10: 10 px every 50 ms while held.
+    assert held >= 50 and held % 10 == 0
+    pump(0.3)
+    assert eval_js(mw.web, "window.scrollY") == held
+    assert not micro.motion_timer.isActive()
+
+
+def test_held_stick_scrolls_without_new_reports(micro, mw):
+    micro.profile.axes_bindings[1] = "Scroll Vertical"
+    try:
+        load_page(mw, TALL)
+        poll(mw, y=1.0)
+        pump(0.5)
+        moved = eval_js(mw.web, "window.scrollY")
+        assert moved > 100
+        poll(mw)
+        pump(0.1)
+        stopped = eval_js(mw.web, "window.scrollY")
+        pump(0.3)
+        assert eval_js(mw.web, "window.scrollY") == stopped
+    finally:
+        micro.profile.axes_bindings[1] = "Buttons"
 
 
 def test_scroll_down_in_the_reviewer(micro, mw):
@@ -292,3 +313,107 @@ def test_hat_switch_dpad_on_macos(micro, mw):
     assert micro.scroll_up
     poll(mw, axes=hat(8))
     assert not micro.scroll_up
+
+
+def test_release_while_unfocused_still_releases(micro, mw):
+    module = sys.modules["contanki.contanki"]
+    bind(micro, 0, "Scroll Up Smooth")
+    poll(mw, pressed={0})
+    assert micro.scroll_up
+    module.get_state = lambda: "NoFocus"
+    try:
+        poll(mw)  # released while Anki is in the background
+        assert not micro.scroll_up
+    finally:
+        module.get_state = lambda: "deckBrowser"
+    poll(mw, pressed={0})  # the next press must not be lost
+    assert micro.scroll_up
+    poll(mw)
+
+
+def test_reconnecting_does_not_leak_widgets(mw):
+    from aqt.qt import QCoreApplication, QEvent, QWidget
+
+    quick = sys.modules["contanki.quick"]
+    overlay = sys.modules["contanki.overlay"]
+
+    def count():
+        # deleteLater deletions run from Anki's main event loop; processEvents alone skips them.
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        return (
+            len(mw.findChildren(quick.QuickSelectButton)),
+            len(mw.findChildren(overlay.OverlayItem)),
+            len([w for w in mw.findChildren(QWidget) if w.parent() is mw]),
+        )
+
+    send(mw, f"on_connect::16::10::{MICRO_ID}")
+    first = count()
+    for _ in range(5):
+        send(mw, f"on_connect::16::10::{MICRO_ID}")
+    assert count() == first
+    send(mw, "on_disconnect::test finished")
+
+
+def test_quick_select_settings_are_not_shared(mw):
+    quick = sys.modules["contanki.quick"]
+    first = quick.QuickSelectMenu(None, {"Select with D-Pad": False})
+    second = quick.QuickSelectMenu(None, {})
+    try:
+        assert first.settings["Select with D-Pad"] is False
+        assert second.settings["Select with D-Pad"] is True
+    finally:
+        first.destroy()
+        second.destroy()
+
+
+def test_config_is_not_rewritten_on_every_read(mw):
+    funcs = sys.modules["contanki.funcs"]
+    writes = []
+    original = mw.addonManager.writeConfig
+    mw.addonManager.writeConfig = lambda *args: writes.append(args)
+    try:
+        funcs.get_config()
+        funcs.get_config()
+    finally:
+        mw.addonManager.writeConfig = original
+    assert writes == []
+
+
+CONTANKI_FAKE_PAD_JS = """
+window.__pad = {
+    index: 0, id: "%s", mapping: "", connected: true, timestamp: 0,
+    buttons: Array.from({length: 16}, () => ({pressed: false, value: 0})),
+    axes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+};
+window.__press = (pressed) => {
+    __pad.buttons[0].pressed = pressed;
+    __pad.buttons[0].value = pressed ? 1 : 0;
+};
+Object.defineProperty(navigator, "getGamepads", {value: () => [__pad], configurable: true});
+on_controller_connect();
+1
+""" % MICRO_ID
+
+
+def test_javascript_reports_only_changes_and_catches_quick_taps(mw):
+    """End to end through Contanki's own poller, with a fake gamepad."""
+    contanki = mw.contanki
+    reports = []
+    original = contanki.poll
+    contanki.poll = lambda *args: (reports.append(args), original(*args))
+    try:
+        eval_js(contanki, CONTANKI_FAKE_PAD_JS)
+        wait_until(lambda: contanki.connected and reports, what="the poller to start")
+        pump(2.2)
+        # Idle: one first report plus the once-a-second heartbeat, instead of 20 a second.
+        assert len(reports) <= 4
+        before = len(reports)
+        eval_js(contanki, "__press(true); setTimeout(() => __press(false), 30); 1")
+        pump(0.3)
+        tap = [r for r in reports[before:] if r[0].startswith("true")]
+        assert tap, "a 30 ms tap was missed"
+        assert reports[-1][0].startswith("false")
+    finally:
+        contanki.poll = original
+        eval_js(contanki, "stop_polling(); connected_index = null; 1")
+        send(mw, "on_disconnect::test finished")

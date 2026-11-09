@@ -72,7 +72,9 @@ def get_config() -> dict:
     else:
         config.update(loaded_config)
 
-    mw.addonManager.writeConfig(__name__, config)
+    # Only write when defaults were filled in; this is called on every profile change.
+    if config != loaded_config:
+        mw.addonManager.writeConfig(__name__, config)
     return config
 
 
@@ -272,8 +274,8 @@ def page_scroll_build() -> Callable[[int], None]:
 def smooth_scroll_build() -> Callable[[int], None]:
     """
     Builds the function behind Scroll Up Smooth and Scroll Down Smooth, called on every
-    controller poll (20 times a second) while the button is held: Scroll Speed pixels
-    per poll.
+    motion tick (20 times a second) while the button is held: Scroll Speed pixels per
+    tick.
     """
     if mw is None:  # for out of anki profile tests
         return lambda direction: None

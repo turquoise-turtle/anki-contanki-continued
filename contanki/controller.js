@@ -1,4 +1,14 @@
 let polling, poll_start, connected_index, indices, ready, mock_index;
+let last_report = null;
+let last_report_at = 0;
+
+// Checked often enough to catch quick taps (Chromium samples gamepads about every 16 ms),
+// but Python only hears about changes, plus a full report once a second to recover from
+// anything missed.
+const POLL_MS = 16;
+const HEARTBEAT_MS = 1000;
+// Larger than the jitter of a resting stick, smaller than any deliberate movement.
+const AXIS_CHANGE = 0.02;
 initialise();
 
 function initialise() {
@@ -57,7 +67,8 @@ function connect_controller(i) {
    }
    bridgeCommand(`contanki::on_connect::${con.buttons.length}::${con.axes.length}::${con.id}`);
    connected_index = i;
-   poll_start = setTimeout(() => (polling = setInterval(poll, 50)), 500);
+   last_report = null;
+   poll_start = setTimeout(() => (polling = setInterval(poll, POLL_MS)), 500);
 }
 
 function on_controller_disconnect(event) {
@@ -94,7 +105,27 @@ function poll() {
    }
 
    let buttons = con.buttons.map((button) => button.pressed);
-   bridgeCommand(`contanki::poll::${buttons}::${con.axes}`);
+   let axes = Array.from(con.axes);
+   let now = performance.now();
+   if (now - last_report_at < HEARTBEAT_MS && !changed_since_report(buttons, axes)) {
+      return;
+   }
+   last_report = { buttons, axes };
+   last_report_at = now;
+   bridgeCommand(`contanki::poll::${buttons}::${axes}`);
+}
+
+function changed_since_report(buttons, axes) {
+   if (last_report == null || last_report.buttons.length != buttons.length) {
+      return true;
+   }
+   for (let i = 0; i < buttons.length; i++) {
+      if (buttons[i] != last_report.buttons[i]) return true;
+   }
+   for (let i = 0; i < axes.length; i++) {
+      if (Math.abs(axes[i] - last_report.axes[i]) > AXIS_CHANGE) return true;
+   }
+   return false;
 }
 
 function mock_controller() {

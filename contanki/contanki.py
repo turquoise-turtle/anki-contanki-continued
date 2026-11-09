@@ -7,7 +7,7 @@ from typing import Any, Callable
 from collections import defaultdict
 
 from aqt import gui_hooks
-from aqt.qt import QAction, qconnect
+from aqt.qt import QAction, QTimer, qconnect
 from aqt.utils import current_window, tooltip
 from aqt.webview import AnkiWebView
 
@@ -47,6 +47,10 @@ move_mouse = move_mouse_build()
 scroll = scroll_build()
 smooth_scroll_step = smooth_scroll_build()
 
+# The controller only reports changes, so held sticks and smooth scrolling are driven by
+# a timer instead, at the rate the old fixed poll ran.
+MOTION_INTERVAL_MS = 50
+
 
 class Contanki(AnkiWebView):
     """Main add-on object. The webview contains JavaScript code that interfaces with
@@ -76,12 +80,23 @@ class Contanki(AnkiWebView):
         super().__init__(parent=parent)
         self.axis_buttons = AxisButtons()
         self.hats = HatSwitches()
+        self.latest_axes: list[float] = []
+        # The screen each held input was pressed on, so its release matches its press.
+        self.press_states: dict[int, State] = {}
+        self.motion_timer = QTimer(self)
+        self.motion_timer.setInterval(MOTION_INTERVAL_MS)
+        qconnect(self.motion_timer.timeout, self.on_motion_tick)
         mw.addonManager.setConfigAction(__name__, self.on_config)
         self.menu_item = QAction("Controller Options", mw)
         qconnect(self.menu_item.triggered, self.on_config)
         gui_hooks.webview_did_receive_js_message.append(self.on_receive_message)
         gui_hooks.profile_will_close.append(self.suspend)
         gui_hooks.profile_did_open.append(self.resume)
+        # Polls no longer arrive continuously, so an always-on overlay is refreshed when
+        # the screen changes instead.
+        gui_hooks.state_did_change.append(self.refresh_overlay)
+        gui_hooks.reviewer_did_show_question.append(self.refresh_overlay)
+        gui_hooks.reviewer_did_show_answer.append(self.refresh_overlay)
         self.resume()
         self.profile = None
         self.update_debug_info()
@@ -122,7 +137,7 @@ class Contanki(AnkiWebView):
         if self.overlay is not None:
             self.overlay.close()
         if self.quick_select is not None:
-            self.quick_select.disappear()
+            self.quick_select.destroy()
         self.overlay = ControlsOverlay(mw, profile)
         self.quick_select = QuickSelectMenu(self, profile.quick_select)
         self.quick_select.update_icon(profile.controller)
@@ -179,11 +194,10 @@ class Contanki(AnkiWebView):
 
     @if_connected
     def poll(self, input_buttons: str, input_axes: str) -> None:
-        """Handles the polling of the controller"""
-        state = get_state()
-        if state == "NoFocus":
-            return
-
+        """
+        Handles a report of the controller's state. The JavaScript side sends one when
+        any input changes, and once a second regardless.
+        """
         buttons, axes = self.parse_controller_inputs(input_buttons, input_axes)
 
         if not buttons:
@@ -200,10 +214,18 @@ class Contanki(AnkiWebView):
             if role == "Buttons"
         ]
         axis_changes = self.axis_buttons.update(axes, button_axes)
+        self.latest_axes = axes
 
-        if state == "config":
-            # The dialog highlights axes its own way; the tracker only has to keep up.
-            self.handle_poll_in_config(axes, changed)
+        # State is tracked above even without focus: reports only arrive on changes, so
+        # skipping them would leave a button that was released elsewhere looking held,
+        # and its next press would be lost.
+        state = get_state()
+        if state in ("NoFocus", "config"):
+            # No new actions here, but anything already held is still released.
+            self.release_held(changed + axis_changes)
+            if state == "config":
+                # The dialog highlights axes its own way; the tracker only has to keep up.
+                self.handle_poll_in_config(axes, changed)
             return
 
         changed += axis_changes
@@ -215,16 +237,44 @@ class Contanki(AnkiWebView):
         for i, value in changed:
             self.do_action(state, i, not value)
 
-        self.do_axes_actions(axes)
+        self.update_motion()
 
         assert self.overlay is not None
         if self.config["Overlays Always On"]:
             self.overlay.appear(state)
 
-        if self.scroll_up:
-            smooth_scroll_step(-1)
-        elif self.scroll_down:
-            smooth_scroll_step(1)
+    def refresh_overlay(self, *_) -> None:
+        """Updates an always-on overlay for the current screen."""
+        if (
+            self.connected
+            and self.overlay is not None
+            and self.config["Overlays Always On"]
+        ):
+            self.overlay.appear(get_state())
+
+    def motion_needed(self) -> bool:
+        """Whether a stick is pushed past the deadzone or a smooth scroll is held."""
+        if self.scroll_up or self.scroll_down:
+            return True
+        if self.profile is None:
+            return False
+        deadzone = self.config["Stick Deadzone"] / 100
+        movements = self.axis_movements(self.latest_axes)
+        return any(
+            abs(movements[x]) + abs(movements[y]) >= deadzone and (movements[x] or movements[y])
+            for x, y in (
+                ("Cursor Horizontal", "Cursor Vertical"),
+                ("Scroll Horizontal", "Scroll Vertical"),
+            )
+        )
+
+    def update_motion(self) -> None:
+        """Runs the motion timer only while there is something to move."""
+        if not self.motion_needed():
+            self.motion_timer.stop()
+        elif not self.motion_timer.isActive():
+            self.motion_timer.start()
+            self.on_motion_tick()
 
     def parse_controller_inputs(
         self, input_buttons: str, input_axes: str
@@ -307,8 +357,10 @@ class Contanki(AnkiWebView):
             if (action == "Show Quick Select" and not pressed) or (
                 action == "Toggle Quick Select" and pressed
             ):
+                self.press_states.pop(index, None)
                 self.hide_quick_select()
                 return
+        self.release_held(changed)
 
         dpad = self.profile.controller.dpad_buttons
         if (
@@ -369,7 +421,8 @@ class Contanki(AnkiWebView):
         """Calls the appropriate function on button press."""
         assert self.profile is not None
         if release:
-            return self.do_release_action(state, button)
+            return self.do_release_action(self.press_states.pop(button, state), button)
+        self.press_states[button] = state
         action = self.profile.get(state, button)
         if action == "Toggle Quick Select":
             self.toggle_quick_select(state)
@@ -384,6 +437,12 @@ class Contanki(AnkiWebView):
             except Exception as err:  # pylint: disable=broad-except
                 tooltip("Error: " + repr(err))
 
+    def release_held(self, changed: list[tuple[int, bool]]) -> None:
+        """Runs the release action of each input in `changed` whose press was handled."""
+        for button, pressed in changed:
+            if not pressed and button in self.press_states:
+                self.do_release_action(self.press_states.pop(button), button)
+
     @if_connected
     def do_release_action(self, state: State, button: int) -> None:
         """Calls the appropriate function on button release."""
@@ -397,9 +456,8 @@ class Contanki(AnkiWebView):
             except Exception as err:  # pylint: disable=broad-except
                 tooltip("Error: " + repr(err))
 
-    @if_connected
-    def do_axes_actions(self, axes: list[float]) -> None:
-        """Moves the cursor or scrolls for axes bound to those roles."""
+    def axis_movements(self, axes: list[float]) -> dict[str, float]:
+        """Totals of the axes bound to cursor and scroll roles."""
         assert self.profile is not None
         movements: dict[str, float] = defaultdict(float)
         for axis, value in enumerate(axes):
@@ -408,12 +466,30 @@ class Contanki(AnkiWebView):
             action = self.profile.axes_bindings[axis]
             if action != "Buttons" and value:
                 movements[action] += -value if self.profile.invert_axis[axis] else value
-        if not any(movements.values()):
+        return movements
+
+    def on_motion_tick(self) -> None:
+        """Moves the cursor, scrolls and smooth-scrolls for whatever is held."""
+        if not self.connected or self.profile is None:
+            self.motion_timer.stop()
             return
+        if not self.motion_needed():
+            self.motion_timer.stop()
+            return
+        if self.quick_select.is_shown or get_state() in ("NoFocus", "config"):
+            return
+        movements = self.axis_movements(self.latest_axes)
         try:
-            move_mouse(movements["Cursor Horizontal"], movements["Cursor Vertical"])
-            scroll(movements["Scroll Horizontal"], movements["Scroll Vertical"])
+            if movements["Cursor Horizontal"] or movements["Cursor Vertical"]:
+                move_mouse(movements["Cursor Horizontal"], movements["Cursor Vertical"])
+            if movements["Scroll Horizontal"] or movements["Scroll Vertical"]:
+                scroll(movements["Scroll Horizontal"], movements["Scroll Vertical"])
+            if self.scroll_up:
+                smooth_scroll_step(-1)
+            elif self.scroll_down:
+                smooth_scroll_step(1)
         except Exception as err:  # pylint: disable=broad-except
+            self.motion_timer.stop()
             tooltip("Error: " + str(err))
 
     def on_connect(self, buttons: str | int, axes: str | int, *con: str) -> None:
@@ -493,6 +569,9 @@ class Contanki(AnkiWebView):
         # A held smooth scroll would otherwise carry on once a controller reconnects.
         self.scroll_up = False
         self.scroll_down = False
+        self.latest_axes = []
+        self.press_states = {}
+        self.motion_timer.stop()
         self.profile = None
         self.update_debug_info()
 
@@ -555,3 +634,4 @@ class Contanki(AnkiWebView):
             self.scroll_up = scroll
         else:
             self.scroll_down = scroll
+        self.update_motion()
