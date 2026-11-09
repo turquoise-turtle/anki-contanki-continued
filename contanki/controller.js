@@ -11,6 +11,15 @@ const HEARTBEAT_MS = 1000;
 const AXIS_CHANGE = 0.02;
 initialise();
 
+// getGamepads can throw in some embedded Chromium builds; treat that as no controllers.
+function gamepads() {
+   try {
+      return window.navigator.getGamepads();
+   } catch (err) {
+      return [];
+   }
+}
+
 function initialise() {
    if (ready) {
       return;
@@ -29,7 +38,7 @@ function initialise() {
 }
 
 function on_controller_connect() {
-   let controllers = window.navigator.getGamepads();
+   let controllers = gamepads();
    let register = "contanki::register";
    indices = [];
    for (let i = 0; i < controllers.length; i++) {
@@ -58,7 +67,7 @@ function stop_polling() {
 
 function connect_controller(i) {
    stop_polling();
-   let con = window.navigator.getGamepads()[i];
+   let con = gamepads()[i];
    if (con == null) {
       bridgeCommand(
          "contanki::message::Could not find controller. Please reconnect your controller and try again."
@@ -77,7 +86,7 @@ function on_controller_disconnect(event) {
       bridgeCommand("contanki::on_disconnect::controller lost");
    }
    connected_index = null;
-   let controllers = window.navigator.getGamepads();
+   let controllers = gamepads();
    for (let i = 0; i < controllers.length; i++) {
       if (controllers[i] != null) {
          on_controller_connect(event);
@@ -92,7 +101,11 @@ function poll() {
       return;
    }
 
-   let con = window.navigator.getGamepads()[connected_index];
+   let con = gamepads()[connected_index];
+   if (con == null) {
+      on_controller_disconnect("controller missing");
+      return;
+   }
 
    try {
       if (!con.connected) {
@@ -154,7 +167,7 @@ function mock_poll() {
 }
 
 function get_controller_info() {
-   let controllers = window.navigator.getGamepads();
+   let controllers = gamepads();
    let ids = "";
    for (let i = 0; i < controllers.length; i++) {
       let con = controllers[i];

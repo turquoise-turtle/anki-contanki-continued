@@ -340,7 +340,11 @@ def hide_cursor() -> None:
 
 
 def _click(button=LeftButton, mod=NoMod, release=False) -> None:
-    """Simulates a mouse click."""
+    """
+    Simulates pressing or releasing a mouse button at the cursor. The press and release
+    together make one real click; an extra JavaScript click used to be sent as well,
+    which made page-wide click handlers such as one-by-one cloze reveal fire twice.
+    """
     pos = mw.cursor().pos()  # type: ignore
     widget = mw.app.widgetAt(pos)  # type: ignore
     if not widget:
@@ -358,9 +362,6 @@ def _click(button=LeftButton, mod=NoMod, release=False) -> None:
             mod,
         ),
     )
-
-    if not release:
-        mw.web.eval('document.querySelectorAll( ":hover" )[0].click()')
 
 
 def click(button=LeftButton, mod=NoMod) -> None:

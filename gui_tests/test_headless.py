@@ -454,6 +454,61 @@ def test_config_is_not_rewritten_on_every_read(mw):
     assert writes == []
 
 
+def test_click_sends_one_real_click(micro, mw):
+    # Issue 153: each press used to click twice, once through Qt and once through
+    # JavaScript. Offscreen nothing is hovered, so the JavaScript click is checked for
+    # directly as well as counting the clicks the page receives.
+    from aqt.qt import QCursor, QPoint
+
+    bind(micro, 0, "Click")
+    pump(0.5)
+    load_page(mw, '<div id="target" style="position: fixed; inset: 0"></div>')
+    eval_js(mw.web, "window.__clicks = []; document.addEventListener('click', e => __clicks.push([e.isTrusted, e.target.id])); 1")
+    QCursor.setPos(mw.web.mapToGlobal(QPoint(mw.web.width() // 2, mw.web.height() // 2)))
+    sent = []
+    original = mw.web.eval
+    mw.web.eval = lambda js: (sent.append(js), original(js))
+    try:
+        poll(mw, pressed={0})
+        pump(0.2)
+        poll(mw)
+        pump(0.3)
+    finally:
+        del mw.web.eval
+    assert eval_js(mw.web, "__clicks") == [[True, "target"]]
+    assert not any(".click()" in js for js in sent)
+
+
+def test_debug_info_waits_for_the_page(mw):
+    contanki = mw.contanki
+    results = []
+    original = contanki._update_debug_info
+    contanki._update_debug_info = lambda value: (results.append(value), original(value))
+    try:
+        # As at start-up: no earlier page that already defines the script.
+        contanki.suspend()
+        pump(0.5)
+        contanki.resume()
+        contanki.update_debug_info()
+        wait_until(lambda: results, what="debug info")
+    finally:
+        del contanki._update_debug_info
+    # None meant the script had not loaded yet ("get_controller_info is not defined").
+    assert results[0] == ""
+
+
+def test_more_axes_than_at_connect_in_options(mw):
+    module = sys.modules["contanki.contanki"]
+    send(mw, f"on_connect::16::2::{MICRO_ID}")
+    module.get_state = lambda: "config"
+    try:
+        poll(mw, y=1.0)  # ten axes
+        poll(mw)
+    finally:
+        module.get_state = lambda: "deckBrowser"
+        send(mw, "on_disconnect::test finished")
+
+
 CONTANKI_FAKE_PAD_JS = """
 window.__pad = {
     index: 0, id: "%s", mapping: "", connected: true, timestamp: 0,

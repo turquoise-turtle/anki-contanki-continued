@@ -284,6 +284,9 @@ class Contanki(AnkiWebView):
         axes = [float(axis) for axis in input_axes.split(",")]
         while len(self.buttons) < len(buttons):
             self.buttons.append(buttons[len(self.buttons)])
+        # A controller can report more axes than it did when it connected.
+        while len(self.axes) < len(axes):
+            self.axes.append(False)
         assert self.profile is not None
         self.hats.apply(buttons, axes, self.profile.controller.dpad_buttons)
         self.controller_specific_fixes(buttons, axes)
@@ -294,6 +297,8 @@ class Contanki(AnkiWebView):
         assert self.profile is not None
         if (
             self.profile.controller.parent == "8BitDo Zero (X Input)"
+            and len(buttons) >= 16
+            and len(axes) >= 4
             and any(axes)
             and not any(buttons[12:16])
         ):
@@ -372,7 +377,7 @@ class Contanki(AnkiWebView):
                 self.input_pressed(index, buttons, axes) for index in dpad
             )
             self.quick_select.dpad_select(state, (up, down, left, right))
-        elif self.profile.controller.has_stick:
+        elif self.profile.controller.has_stick and len(axes) >= 2:
             self.quick_select.stick_select(state, axes[0], axes[1])
 
         pressed_now = {index for index, pressed in changed if pressed}
@@ -616,7 +621,12 @@ class Contanki(AnkiWebView):
 
     def update_debug_info(self):
         """Updates the debug info. View by pressing help in the config dialog."""
-        self._evalWithCallback("get_controller_info()", self._update_debug_info)
+        # evalWithCallback waits for the page to load; called straight after resume(),
+        # the script was not defined yet.
+        self.evalWithCallback(
+            "typeof get_controller_info === 'function' ? get_controller_info() : null",
+            self._update_debug_info,
+        )
 
     def _update_debug_info(self, controllers: str) -> None:
         """Callback to receive the controller info from the JavaScript interface"""
