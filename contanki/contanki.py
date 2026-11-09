@@ -315,6 +315,15 @@ class Contanki(AnkiWebView):
             axes[0] = axes[0] or axes[2]
             axes[1] = axes[1] or axes[5]
 
+        # The Micro's D-pad can be switched (with a button combination on the controller)
+        # to act as the left stick, axes 0 and 1, which its profile binds; as the right
+        # stick, axes 2 and 5; or as a hat switch, which HatSwitches has already copied
+        # onto axes 0 and 1. The right-stick layout is folded onto 0 and 1 as well.
+        if self.profile.controller.parent == "8BitDo Micro" and len(axes) > 5:
+            for dpad_axis, stick_axis in ((0, 2), (1, 5)):
+                if abs(axes[stick_axis]) > abs(axes[dpad_axis]):
+                    axes[dpad_axis] = axes[stick_axis]
+
     def handle_poll_in_config(
         self, axes: list[float], changed: list[tuple[int, bool]]
     ) -> None:

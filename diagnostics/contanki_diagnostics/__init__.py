@@ -22,7 +22,7 @@ from aqt.qt import QAction, QDialog, QVBoxLayout, qconnect
 from aqt.utils import tooltip
 from aqt.webview import AnkiWebView
 
-TOOL_VERSION = "1.0"
+TOOL_VERSION = "1.1"
 ADDON_DIR = Path(__file__).resolve().parent
 
 

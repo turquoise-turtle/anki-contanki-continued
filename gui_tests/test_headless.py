@@ -319,6 +319,33 @@ def test_hat_switch_dpad_on_macos(micro, mw):
     assert micro.scroll_up
     poll(mw, axes=hat(8))
     assert not micro.scroll_up
+    # A Micro measured on macOS 27 rests at 23/7 instead.
+    poll(mw, axes=hat(15))
+    assert not micro.scroll_up and not micro.scroll_down
+    poll(mw, axes=hat(2))
+    assert micro.scroll_down
+    poll(mw, axes=hat(15))
+    assert not micro.scroll_down
+
+
+def test_micro_dpad_in_right_stick_mode(micro, mw):
+    # Measured on a Micro: with the D-pad switched to act as the right stick it moves
+    # axes 2 and 5, while the triggers rest at -1 on axes 3 and 4 once first pressed.
+    def right_stick(x=-0.0039, y=-0.0039):
+        return [-0.0039, -0.0039, x, -1.0, -1.0, y, 0.0, 0.0, 0.0, 23 / 7]
+
+    bind(micro, 101, "Scroll Down Smooth")  # D-pad right
+    bind(micro, 102, "Scroll Up Smooth")  # D-pad up
+    poll(mw, axes=right_stick())
+    assert not micro.scroll_up and not micro.scroll_down
+    poll(mw, axes=right_stick(x=1.0))
+    assert micro.scroll_down
+    poll(mw, axes=right_stick())
+    assert not micro.scroll_down
+    poll(mw, axes=right_stick(y=-1.0))
+    assert micro.scroll_up
+    poll(mw, axes=right_stick())
+    assert not micro.scroll_up
 
 
 FAKE_PAD_JS = """
@@ -347,16 +374,30 @@ def test_diagnostics_run_through(mw, tmp_path):
     def set_pad(pressed=(), hat=None):
         eval_js(web, f"__setPad({json.dumps(list(pressed))}, {json.dumps(hat)}); 1")
 
-    # Rest: 1.5 s grace plus 3 s of recording.
+    def set_axis(index, value):
+        eval_js(web, f"__pad.axes[{index}] = {value}; __pad.timestamp += 1; 1")
+
+    def skip_inputs(until):
+        while eval_js(web, "report.inputs.length") < until:
+            eval_js(web, "onSkip && onSkip(); 1")
+            pump(0.05)
+
+    # Rest: 4.5 s of prompts plus 3 s of recording. The trigger axes are still 0, as on a
+    # real Micro whose triggers have not been pressed since Anki started.
     wait_until(lambda: eval_js(web, "rest !== null"), what="rest measurement")
     set_pad(hat=0)  # D-pad up on a macOS-style hat
     pump(0.5)
     set_pad()
     wait_until(lambda: eval_js(web, "report.inputs.length") == 1, what="first input")
-    for _ in range(16):
-        eval_js(web, "onSkip && onSkip(); 1")
-        pump(0.05)
-    wait_until(lambda: eval_js(web, "report.inputs.length") == 17, what="all inputs")
+    skip_inputs(11)
+    # L2: button 8 and axis 4 go to 1, and on release axis 4 settles at -1, not 0.
+    set_pad(pressed=[8])
+    set_axis(4, 1)
+    pump(0.5)
+    set_pad()
+    set_axis(4, -1)
+    wait_until(lambda: eval_js(web, "report.inputs.length") == 12, 5, "L2 to finish")
+    skip_inputs(17)
     for _ in range(10):
         set_pad(pressed=[0])
         pump(0.08)
@@ -375,7 +416,11 @@ def test_diagnostics_run_through(mw, tmp_path):
     assert first["label"] == "D-pad Up" and first["status"] == "ok"
     assert [a["index"] for a in first["changes"]["axes"]] == [9]
     assert first["changes"]["axes"][0]["value"] == -1
-    assert all(i["status"] == "skipped" for i in report["inputs"][1:])
+    l2 = report["inputs"][11]
+    assert l2["label"] == "L2" and l2["status"] == "ok"
+    assert [b["index"] for b in l2["changes"]["buttons"]] == [8]
+    assert report["rest"]["adopted_later"] == [{"index": 4, "value": -1}]
+    assert all(i["status"] == "skipped" for i in report["inputs"][1:11] + report["inputs"][12:])
     taps = report["taps"][0]
     assert taps["status"] == "ok" and len(taps["taps"]) == 10
     assert len(report["bridge_round_trip_ms"]) == 20

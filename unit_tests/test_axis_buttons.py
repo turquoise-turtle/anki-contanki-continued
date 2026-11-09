@@ -121,6 +121,27 @@ def test_hat_becomes_the_micro_dpad():
     assert step(hat(8)) == [(LEFT, False), (DOWN, False)]
 
 
+def test_hat_values_measured_on_a_micro():
+    # From controller-reports: macOS 27.2, Anki 26.09, D-pad in hat mode, axis 9.
+    released, up, right, down, left = 3.2857, -1.0, -0.4286, 0.1429, 0.7143
+    hats = HatSwitches()
+    tracker = AxisButtons()
+    buttons = [False] * 20
+
+    def step(value):
+        axes = micro_with_hat(value)
+        hats.apply(buttons, axes, MICRO_DPAD)
+        return tracker.update(axes, [0, 1])
+
+    assert step(released) == []
+    assert step(up) == [(UP, True)]
+    assert step(released) == [(UP, False)]
+    assert step(right) == [(RIGHT, True)]
+    assert step(down) == [(RIGHT, False), (DOWN, True)]
+    assert step(left) == [(LEFT, True), (DOWN, False)]
+    assert step(released) == [(LEFT, False)]
+
+
 def test_hat_axis_is_neutralised_without_a_dpad():
     hats = HatSwitches()
     axes = micro_with_hat(hat(8))

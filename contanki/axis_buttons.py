@@ -71,9 +71,10 @@ class AxisButtons:
 
 
 # Chromium reports a HID hat switch (a D-pad on some controllers, such as the 8BitDo Micro
-# on macOS 26) as a single axis: 2v/7 - 1 for the directions v = 0 (up) to 7 (up-left),
-# clockwise, and 9/7 when released. No ordinary axis goes beyond 1, which is how a hat is
-# recognised.
+# on macOS 26 and 27) as a single axis: 2v/7 - 1 for the directions v = 0 (up) to 7
+# (up-left), clockwise. Released, it reads 9/7 in issue 154's report and 23/7 (v = 15, the
+# HID null value) on a Micro measured on macOS 27. No ordinary axis goes beyond 1, which is
+# how a hat is recognised.
 HAT_RELEASED_MIN = 1.05
 HAT_DIRECTIONS = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)]
 

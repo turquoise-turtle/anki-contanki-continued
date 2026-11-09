@@ -187,9 +187,35 @@ function wait(ms) {
    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Chromium on macOS reads an axis as 0 until the controller first reports it, so the Micro's
+// triggers rest at 0 until they are pressed once and at -1 from then on. Without this, an
+// axis that started at 0 never returned to "rest" after its first press and every later
+// step timed out.
+function adoptNewRest(sample, buttonSeen) {
+   if (!buttonSeen || sample.pressed.some((p, i) => (p || sample.buttons[i] > 0.5) !== rest.held[i])) {
+      return;
+   }
+   sample.axes.forEach((value, i) => {
+      if (rest.unreported.has(i) && Math.abs(value - rest.axes[i].mean) > AXIS_ACTIVE) {
+         const since = rest.settling.get(i);
+         if (!since || since.value !== value) {
+            rest.settling.set(i, { value, t: sample.t });
+         } else if (sample.t - since.t > 300) {
+            rest.axes[i] = { ...rest.axes[i], mean: round(value) };
+            rest.unreported.delete(i);
+            rest.settling.delete(i);
+            report.rest.adopted_later.push({ index: i, value: round(value) });
+         }
+      }
+   });
+}
+
 async function measureRest() {
-   say(`<b>Step 1.</b> Put the controller down and don't touch it for ${REST_MS / 1000} seconds.`);
-   await wait(1500);
+   say(`<b>Step 1.</b> Press L2 and R2 once each (if it has them), then put the controller
+      down and don't touch it.`);
+   await wait(4000);
+   say(`<b>Step 1.</b> Don't touch the controller for ${REST_MS / 1000} seconds.`);
+   await wait(500);
    const samples = [];
    onSample = (s) => samples.push(s);
    await wait(REST_MS);
@@ -203,17 +229,20 @@ async function measureRest() {
    }
    const last = samples[samples.length - 1];
    rest = {
-      axes,
+      axes: axes.map((a) => ({ ...a })),
       held: last.pressed.map((p, i) => p || last.buttons[i] > 0.5),
+      unreported: new Set(axes.flatMap((a, i) => (a.min === 0 && a.max === 0 ? [i] : []))),
+      settling: new Map(),
    };
    report.rest = {
       duration_ms: REST_MS,
       samples: samples.length,
       axes,
       buttons_held_at_rest: rest.held.flatMap((h, i) => (h ? [i] : [])),
-      // Chromium reports a released hat switch as 9/7; ordinary axes stay within -1 to 1.
+      // A released hat switch reads above 1 (9/7 or 23/7 seen); ordinary axes stay within -1 to 1.
       hat_like_axes: axes.flatMap((a, i) => (Math.abs(a.mean) > 1.05 ? [i] : [])),
       noisy_axes: axes.flatMap((a, i) => (a.max - a.min > 0.02 ? [i] : [])),
+      adopted_later: [],
    };
 }
 
@@ -224,9 +253,12 @@ function inputStep(label, number) {
       let start = null;
       let best = null;
       let restSince = null;
+      let buttonSeen = false;
       const timer = setTimeout(() => finish(start ? "timeout_while_held" : "timeout"), STEP_TIMEOUT_MS);
       onSample = (s) => {
+         adoptNewRest(s, buttonSeen);
          const dev = deviation(s);
+         if (dev.buttons.length) buttonSeen = true;
          if (start === null) {
             if (dev.active) start = s.t;
             else return;
@@ -263,6 +295,7 @@ function tapStep(label, number) {
       let lastUp = null;
       const timer = setTimeout(() => finish("timeout"), STEP_TIMEOUT_MS);
       onSample = (s) => {
+         adoptNewRest(s, true);
          const active = deviation(s).active;
          if (active && downAt === null) {
             downAt = s.t;
