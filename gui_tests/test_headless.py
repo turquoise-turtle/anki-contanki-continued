@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 ADDON = Path(__file__).resolve().parents[1] / "contanki"
+DIAGNOSTICS = Path(__file__).resolve().parents[1] / "diagnostics" / "contanki_diagnostics"
 MICRO_ID = "8BitDo Micro gamepad (Vendor: 2dc8 Product: 9020)"
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -50,6 +51,11 @@ def mw(tmp_path_factory):
     addons.mkdir()
     shutil.copytree(
         ADDON, addons / "contanki", ignore=shutil.ignore_patterns("__pycache__", "meta.json")
+    )
+    shutil.copytree(
+        DIAGNOSTICS,
+        addons / "contanki_diagnostics",
+        ignore=shutil.ignore_patterns("__pycache__", "meta.json"),
     )
 
     import anki.lang
@@ -313,6 +319,75 @@ def test_hat_switch_dpad_on_macos(micro, mw):
     assert micro.scroll_up
     poll(mw, axes=hat(8))
     assert not micro.scroll_up
+
+
+FAKE_PAD_JS = """
+window.__pad = {
+    index: 0, id: "%s", mapping: "", connected: true, timestamp: 0,
+    buttons: Array.from({length: 16}, () => ({pressed: false, value: 0})),
+    axes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 9 / 7],
+};
+window.__setPad = (pressed, hat) => {
+    __pad.buttons.forEach((b, i) => { b.pressed = pressed.includes(i); b.value = b.pressed ? 1 : 0; });
+    __pad.axes[9] = hat === null ? 9 / 7 : 2 * hat / 7 - 1;
+    __pad.timestamp += 1;
+};
+Object.defineProperty(navigator, "getGamepads", {value: () => [__pad], configurable: true});
+1
+""" % MICRO_ID
+
+
+def test_diagnostics_run_through(mw, tmp_path):
+    os.environ["CONTANKI_DIAGNOSTICS_DIR"] = str(tmp_path)
+    sys.modules["contanki_diagnostics"].open_dialog()
+    web = mw.contanki_diagnostics.web
+    wait_until(lambda: eval_js(web, "typeof window.diagSaved") == "function", what="page")
+    eval_js(web, FAKE_PAD_JS)
+
+    def set_pad(pressed=(), hat=None):
+        eval_js(web, f"__setPad({json.dumps(list(pressed))}, {json.dumps(hat)}); 1")
+
+    # Rest: 1.5 s grace plus 3 s of recording.
+    wait_until(lambda: eval_js(web, "rest !== null"), what="rest measurement")
+    set_pad(hat=0)  # D-pad up on a macOS-style hat
+    pump(0.5)
+    set_pad()
+    wait_until(lambda: eval_js(web, "report.inputs.length") == 1, what="first input")
+    for _ in range(16):
+        eval_js(web, "onSkip && onSkip(); 1")
+        pump(0.05)
+    wait_until(lambda: eval_js(web, "report.inputs.length") == 17, what="all inputs")
+    for _ in range(10):
+        set_pad(pressed=[0])
+        pump(0.08)
+        set_pad()
+        pump(0.08)
+    wait_until(lambda: eval_js(web, "report.taps.length") == 1, what="tap test")
+    eval_js(web, "onSkip && onSkip(); 1")
+    wait_until(lambda: eval_js(web, "!!document.getElementById('finish')"), 30, "notes step")
+    eval_js(web, "document.getElementById('notes').value = 'D mode'; document.getElementById('finish').click(); 1")
+    wait_until(lambda: eval_js(web, "window.diagDone === true"), what="report saved")
+
+    (saved,) = tmp_path.glob("contanki-diagnostics-*.json")
+    report = json.loads(saved.read_text())
+    assert report["rest"]["hat_like_axes"] == [9]
+    first = report["inputs"][0]
+    assert first["label"] == "D-pad Up" and first["status"] == "ok"
+    assert [a["index"] for a in first["changes"]["axes"]] == [9]
+    assert first["changes"]["axes"][0]["value"] == -1
+    assert all(i["status"] == "skipped" for i in report["inputs"][1:])
+    taps = report["taps"][0]
+    assert taps["status"] == "ok" and len(taps["taps"]) == 10
+    assert len(report["bridge_round_trip_ms"]) == 20
+    assert report["notes"] == "D mode"
+    assert report["environment"]["anki"]
+    assert any(
+        r.get("identified_as") and r["identified_as"][0] == "8BitDo Micro"
+        for r in report["contanki"]
+    )
+    hidden = report["hidden_view"]
+    assert hidden["seconds_recorded"] > 0 and hidden["interval_ms_median"]
+    mw.contanki_diagnostics.close()
 
 
 def test_release_while_unfocused_still_releases(micro, mw):
