@@ -1,4 +1,57 @@
-# Contanki: Controller Support for Anki
+# Contanki Continued: Controller Support for Anki
+
+<a href="https://madebyhuman.iamjarl.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://madebyhuman.iamjarl.com/badges/co-created-white.svg"><img src="https://madebyhuman.iamjarl.com/badges/co-created-black.svg" alt="Co-created with AI" height="28"></picture></a>
+
+> [!IMPORTANT]
+> This is an unofficial, AI-written continuation of [Contanki](https://github.com/roxgib/anki-contanki) by roxgib (Sam Bradshaw), which has had no updates since April 2024. The changes here were written by Claude, Anthropic's AI model, using Claude Code, with turquoise-turtle directing the work and testing it. roxgib has not reviewed or endorsed any of it. If you would rather not run AI-written code, use the original add-on from [AnkiWeb](https://ankiweb.net/shared/info/1898790263).
+
+## What this fork changes
+
+Fixes for issues reported on the original repository, most of them affecting the 8BitDo Micro:
+
+- D-pads that report as axes (8BitDo Micro, Zero 2) now release properly, so a second press in the same direction works and held actions stop ([#163](https://github.com/roxgib/anki-contanki/issues/163), [#119](https://github.com/roxgib/anki-contanki/issues/119)).
+- The Micro's D-pad works on macOS 26 and later, where it is reported as a hat switch ([#154](https://github.com/roxgib/anki-contanki/issues/154)), and in all three of its D-pad modes (D-pad, left stick and right stick).
+- Quick Select can be driven with an axis D-pad ([#104](https://github.com/roxgib/anki-contanki/issues/104)), and no longer swallows button releases.
+- Scroll Up and Scroll Down move by steady steps rather than jumping to the end, and scrolling reaches cards whose content scrolls inside a box ([#137](https://github.com/roxgib/anki-contanki/issues/137), [#155](https://github.com/roxgib/anki-contanki/issues/155)).
+- Click no longer clicks twice, which revealed two one-by-one cloze gaps per press ([#153](https://github.com/roxgib/anki-contanki/issues/153)).
+- The controller is only reported to Anki when something changes, and sticks and smooth scrolling run from a timer, which cuts idle work, catches short taps and may help with delays ([#142](https://github.com/roxgib/anki-contanki/issues/142), [#157](https://github.com/roxgib/anki-contanki/issues/157)).
+- Changing profiles no longer leaks widgets ([#102](https://github.com/roxgib/anki-contanki/issues/102)), and the start-up error behind the Anki 25 crash reports is fixed ([#133](https://github.com/roxgib/anki-contanki/issues/133), [#144](https://github.com/roxgib/anki-contanki/issues/144), [#145](https://github.com/roxgib/anki-contanki/issues/145)).
+- Disconnecting the controller is noticed, and a controller that fails to connect no longer reconnects in a loop.
+- The add-on loads again: the original repository's latest commit imports libraries Anki doesn't include.
+
+Brought over from other forks and pull requests, credited in the commits:
+
+- 8BitDo Zero controllers that report 15 buttons get a working D-pad Right (aalemayhu, danzaffar).
+- A separate, round deadzone for the cursor stick, the "Cursor Deadzone" option (Sonder9999).
+- Custom actions are saved with each profile, so exporting a profile includes them ([#83](https://github.com/roxgib/anki-contanki/issues/83); abdnh, [PR #112](https://github.com/roxgib/anki-contanki/pull/112)).
+- Bounds checks for controllers that report fewer buttons or more axes than expected (danzaffar, [PR #160](https://github.com/roxgib/anki-contanki/pull/160)).
+
+## How it has been tested
+
+- 43 automated tests run a real, headless Anki 25.09 and 26.09 with simulated controller input. Most fixes have a test that was checked to fail without the fix.
+- On real hardware, only one 8BitDo Micro on macOS 27.2 with Anki 26.09 so far: every button (except Star, which macOS never passes on) and the D-pad in all three modes were recorded with the diagnostics add-on, and the D-pad, repeated presses and smooth scrolling were tried in Anki. Other controllers, Windows and Linux have not been tried.
+
+## Installing
+
+This fork isn't on AnkiWeb. Build the package with [uv](https://docs.astral.sh/uv/), then in Anki use Tools → Add-ons → Install from file:
+
+```bash
+uv run --no-project build.py
+```
+
+This writes `dist/contanki-test.ankiaddon` (the add-on) and `dist/contanki-diagnostics.ankiaddon`. Disable the AnkiWeb Contanki first: with both enabled, every button press acts twice.
+
+## Reporting problems
+
+Please open issues on [this repository](https://github.com/turquoise-turtle/anki-contanki-continued/issues), not the original. If a controller misbehaves, the diagnostics add-on records what Anki sees from it; [diagnostics/RUNTHROUGH.md](diagnostics/RUNTHROUGH.md) explains how to run it. Attach the JSON report it saves.
+
+## Licence
+
+GNU AGPLv3, as the original; see [LICENSE](LICENSE). Contanki was created by roxgib (Sam Bradshaw).
+
+---
+
+*The rest of this README is the original project's, unchanged. Its install instructions refer to the original add-on on AnkiWeb.*
 
 Contanki is an add-on for [Anki](https://apps.ankiweb.net) which allows users to control Anki using a gamepad or other controller device. To install, visit [AnkiWeb](https://ankiweb.net/shared/info/1898790263) or use the install code 1898790263.
 
