@@ -34,7 +34,8 @@ Keep Contanki enabled during Part A: the report then also records how the instal
 1. Tools → Add-ons: select "Contanki - Controller Support" (the AnkiWeb version) and click Toggle Enabled to disable it. Two copies running at once would both act on every button press.
 2. Install from file… → `contanki-test.ankiaddon`. Restart Anki. Its version shows as "v1.0.2 + Micro fixes (…)".
 3. Your profiles do not carry over automatically. To keep them, select the old add-on, click View Files, and copy `user_files/profiles/*` into the new add-on's `user_files/profiles/` (View Files on the new one), then restart.
-4. Work through the checklist, noting anything that doesn't match:
+4. Set up the test cards for the scrolling and Click rows (about five minutes; see "Test cards" below).
+5. Work through the checklist, noting anything that doesn't match:
 
 | Try | Expected |
 | --- | --- |
@@ -48,7 +49,19 @@ Keep Contanki enabled during Part A: the report then also records how the instal
 | Bind Click and reveal a one-by-one cloze | One press reveals one gap (issue 153) |
 | Answer twenty cards | Note any delay between pressing and the next card (issues 142, 157) |
 
-5. Run Tools → Controller Diagnostics once more with the test build enabled, and write "test build" in the notes.
+6. Run Tools → Controller Diagnostics once more with the test build enabled, and write "test build" in the notes.
+
+### Test cards
+
+Issue 155 was reported on AnKing cards, whose styling differs from Anki's built-in note types, and inside AMBOSS pop-ups. You don't need the AnKing deck itself: its note type is free, and a couple of long notes are enough.
+
+1. Download `AnKingOverhaul.apkg` from the AnKing note types release page: https://github.com/AnKing-VIP/AnKing-Note-Types/releases/tag/AnKingOverhaul-3ff1197 (under Assets). It holds the AnKingOverhaul note type and one sample note, "One Card To Rule Them All".
+2. In Anki: File → Import → choose the file. It adds a deck containing the sample note.
+3. Make a long card. Click Add, choose the **AnKingOverhaul** note type and that deck, and put in the **Text** field `Long card {{c1::test}}`. In **Extra**, paste a few screens of any text (a Wikipedia article is fine), enough that the back of the card needs scrolling. Add it.
+4. Make a one-by-one card for the Click row. Add another AnKingOverhaul note with `{{c1::one}} {{c1::two}} {{c1::three}}` in **Text**, and type `y` in the **One by one** field, which turns on revealing the gaps one at a time. Add it.
+5. Study that deck. To scroll, use the long card's back. For the Click row, bind Click to a button on the Review tab, show the answer of the one-by-one card, move the mouse over the first hidden gap and press the button: one gap should appear per press.
+
+AMBOSS pop-ups need the AMBOSS add-on and an AMBOSS account. If you don't have one, skip that half of the row and write "no AMBOSS" in your notes; the long AnKing card covers the main part of issue 155.
 
 ## Part C: bring the results back
 
