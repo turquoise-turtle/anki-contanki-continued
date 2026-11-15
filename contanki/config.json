@@ -4,6 +4,7 @@
     "Cursor Speed": 10,
     "Cursor Acceleration": 10,
     "Stick Deadzone": 5,
+    "Cursor Deadzone": 15,
     "Enable Control Overlays": true,
     "Large Overlays": false,
     "Overlays Always On": false,

@@ -281,6 +281,24 @@ def test_held_stick_scrolls_without_new_reports(micro, mw):
         micro.profile.axes_bindings[1] = "Buttons"
 
 
+def test_cursor_deadzone_is_round(micro, mw):
+    # Idea from Sonder9999's fork: a separate, circular deadzone for the cursor stick.
+    micro.profile.axes_bindings[0] = "Cursor Horizontal"
+    micro.profile.axes_bindings[1] = "Cursor Vertical"
+    try:
+        assert micro.config["Cursor Deadzone"] == 15
+        # 0.1 + 0.1 passed the old diamond-shaped check, but is only 0.14 from centre.
+        poll(mw, x=0.1, y=0.1)
+        assert not micro.motion_needed()
+        poll(mw, x=0.2)
+        assert micro.motion_needed()
+        poll(mw)
+        assert not micro.motion_needed()
+    finally:
+        micro.profile.axes_bindings[0] = "Buttons"
+        micro.profile.axes_bindings[1] = "Buttons"
+
+
 def test_scroll_down_in_the_reviewer(micro, mw):
     model = mw.col.models.by_name("Basic")
     note = mw.col.new_note(model)

@@ -15,6 +15,7 @@ from .quick import QuickSelectMenu
 from .icons import IconHighlighter
 from .config import ContankiConfig
 from .funcs import (
+    cursor_past_deadzone,
     get_config,
     get_custom_actions,
     get_state,
@@ -258,14 +259,14 @@ class Contanki(AnkiWebView):
             return True
         if self.profile is None:
             return False
-        deadzone = self.config["Stick Deadzone"] / 100
         movements = self.axis_movements(self.latest_axes)
-        return any(
-            abs(movements[x]) + abs(movements[y]) >= deadzone and (movements[x] or movements[y])
-            for x, y in (
-                ("Cursor Horizontal", "Cursor Vertical"),
-                ("Scroll Horizontal", "Scroll Vertical"),
-            )
+        cursor_x, cursor_y = movements["Cursor Horizontal"], movements["Cursor Vertical"]
+        scroll_x, scroll_y = movements["Scroll Horizontal"], movements["Scroll Vertical"]
+        scroll_deadzone = self.config["Stick Deadzone"] / 100
+        return cursor_past_deadzone(
+            cursor_x, cursor_y, self.config["Cursor Deadzone"] / 100
+        ) or bool(
+            (scroll_x or scroll_y) and abs(scroll_x) + abs(scroll_y) >= scroll_deadzone
         )
 
     def update_motion(self) -> None:

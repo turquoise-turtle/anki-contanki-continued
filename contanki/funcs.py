@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import subprocess
 from typing import Any, Callable
@@ -57,6 +58,7 @@ def get_config() -> dict:
         "Cursor Speed": 10,
         "Cursor Acceleration": 10,
         "Stick Deadzone": 5,
+        "Cursor Deadzone": 15,
         "Enable Control Overlays": True,
         "Large Overlays": False,
         "Overlays Always On": False,
@@ -283,6 +285,14 @@ def smooth_scroll_build() -> Callable[[int], None]:
     return lambda direction: scroll_by(0, direction * step)
 
 
+def cursor_past_deadzone(x: float, y: float, deadzone: float) -> bool:
+    """
+    Whether the cursor stick is pushed past its deadzone. The deadzone is a circle, so a
+    worn stick that rests slightly off centre doesn't creep diagonally.
+    """
+    return math.hypot(x, y) >= deadzone
+
+
 def move_mouse_build() -> Callable[[float, float], None]:
     """Builds a function that moves the mouse, accounting for user settings."""
     if mw is None:  # for out of anki profile tests
@@ -291,11 +301,11 @@ def move_mouse_build() -> Callable[[float, float], None]:
     assert config is not None
     speed = config["Cursor Speed"] / 2
     accel = config["Cursor Acceleration"] / 5
-    deadzone = config["Stick Deadzone"] / 100
+    deadzone = config["Cursor Deadzone"] / 100
     multiple_screens = dbg("Multiple screens", len(mw.app.screens()) > 1)
 
     def move_mouse(move_x: float, move_y: float) -> None:
-        if abs(move_x) + abs(move_y) < deadzone:
+        if not cursor_past_deadzone(move_x, move_y, deadzone):
             return
         cursor = mw.cursor()
         pos = cursor.pos()  # type: ignore
