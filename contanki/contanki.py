@@ -282,22 +282,27 @@ class Contanki(AnkiWebView):
         """Parses the controller inputs"""
         buttons = [button == "true" for button in input_buttons.split(",")]
         axes = [float(axis) for axis in input_axes.split(",")]
+        assert self.profile is not None
+        self.hats.apply(buttons, axes, self.profile.controller.dpad_buttons)
+        # Fixes can add buttons, so the remembered state is resized after them.
+        self.controller_specific_fixes(buttons, axes)
         while len(self.buttons) < len(buttons):
             self.buttons.append(buttons[len(self.buttons)])
         # A controller can report more axes than it did when it connected.
         while len(self.axes) < len(axes):
             self.axes.append(False)
-        assert self.profile is not None
-        self.hats.apply(buttons, axes, self.profile.controller.dpad_buttons)
-        self.controller_specific_fixes(buttons, axes)
         return buttons, axes
 
     def controller_specific_fixes(self, buttons: list[bool], axes: list[float]):
         """Fixes for specific controllers"""
         assert self.profile is not None
+        if self.profile.controller.parent == "8BitDo Zero (X Input)":
+            # Some units (the Zero 2 among them) report only 15 buttons, which leaves no
+            # index for D-pad Right. Padding on every report, not just while the D-pad
+            # is pushed, lets its release be seen.
+            buttons.extend([False] * (16 - len(buttons)))
         if (
             self.profile.controller.parent == "8BitDo Zero (X Input)"
-            and len(buttons) >= 16
             and len(axes) >= 4
             and any(axes)
             and not any(buttons[12:16])

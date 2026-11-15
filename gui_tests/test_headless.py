@@ -328,6 +328,31 @@ def test_hat_switch_dpad_on_macos(micro, mw):
     assert not micro.scroll_down
 
 
+def test_zero_with_fifteen_buttons_gets_dpad_right(mw):
+    # Some 8BitDo Zero units in X-input mode report 15 buttons, so D-pad Right (index 15,
+    # derived from the axes) used to be skipped, or raised IndexError before the bounds
+    # checks. Padding idea from aalemayhu's and danzaffar's forks.
+    zero_id = "8BitDo Zero 2 gamepad (Vendor: 045e Product: 02e0)"
+    send(mw, f"on_connect::15::4::{zero_id}")
+    contanki = mw.contanki
+    try:
+        assert contanki.profile.controller.parent == "8BitDo Zero (X Input)"
+        bind(contanki, 15, "Scroll Down Smooth")
+
+        def zero_poll(x):
+            buttons = ",".join(["false"] * 15)
+            send(mw, f"poll::{buttons}::{x},0,0,0")
+
+        zero_poll(0.0)
+        assert not contanki.scroll_down
+        zero_poll(1.0)
+        assert contanki.scroll_down
+        zero_poll(0.0)
+        assert not contanki.scroll_down
+    finally:
+        send(mw, "on_disconnect::test finished")
+
+
 def test_micro_dpad_in_right_stick_mode(micro, mw):
     # Measured on a Micro: with the D-pad switched to act as the right stick it moves
     # axes 2 and 5, while the triggers rest at -1 on axes 3 and 4 once first pressed.
