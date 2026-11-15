@@ -17,11 +17,11 @@ from .config import ContankiConfig
 from .funcs import (
     cursor_past_deadzone,
     get_config,
-    get_custom_actions,
     get_state,
     move_mouse_build,
     scroll_build,
     smooth_scroll_build,
+    callback_for_key_sequence,
 )
 from .utils import State, get_file, DEBUG, dbg
 from .overlay import ControlsOverlay
@@ -30,6 +30,7 @@ from .profile import (
     Profile,
     get_profile,
     find_profile,
+    get_profile_list,
 )
 from .actions import button_actions, release_actions, update_actions
 from .axis_buttons import (
@@ -69,7 +70,6 @@ class Contanki(AnkiWebView):
     icons = IconHighlighter()
     controllers: list[QAction] = list()
     debug_info: list[list[str]] = []
-    custom_actions = get_custom_actions()
     _script = get_file("controller.js")
     if _script is None:
         raise FileNotFoundError("controller.js not found")
@@ -88,6 +88,7 @@ class Contanki(AnkiWebView):
         self.motion_timer.setInterval(MOTION_INTERVAL_MS)
         qconnect(self.motion_timer.timeout, self.on_motion_tick)
         mw.addonManager.setConfigAction(__name__, self.on_config)
+        self.migrate_custom_actions()
         self.menu_item = QAction("Controller Options", mw)
         qconnect(self.menu_item.triggered, self.on_config)
         gui_hooks.webview_did_receive_js_message.append(self.on_receive_message)
@@ -112,6 +113,27 @@ class Contanki(AnkiWebView):
             run_tests()
         else:
             self.setFixedSize(0, 0)
+
+    def migrate_custom_actions(self) -> None:
+        """Move old custom actions from the config to profiles."""
+        config = get_config()
+        # Runs at every start-up, so it only touches files when there is something to move.
+        if "Custom Actions" not in config:
+            return
+        default_actions: dict[str, str] = config["Default Custom Actions"]
+        config_actions: dict[str, str] = config.get("Custom Actions", {})
+        for action in default_actions:
+            if action not in config_actions:
+                config_actions[action] = default_actions[action]
+        for profile_name in get_profile_list(defaults=False):
+            profile = get_profile(profile_name)
+            assert profile is not None
+            for action in config_actions:
+                if action not in profile.custom_actions:
+                    profile.custom_actions[action] = config_actions[action]
+            profile.save()
+        del config["Custom Actions"]
+        mw.addonManager.writeConfig(__name__, config)
 
     def suspend(self):
         """Suspends JS execution. Necessary to prevent crash when Anki exits."""
@@ -146,7 +168,6 @@ class Contanki(AnkiWebView):
         globals()["move_mouse"] = move_mouse_build()
         globals()["scroll"] = scroll_build()
         globals()["smooth_scroll_step"] = smooth_scroll_build()
-        self.custom_actions = get_custom_actions()
 
     def on_config(self) -> None:
         """Opens the config dialog"""
@@ -452,10 +473,18 @@ class Contanki(AnkiWebView):
             try:
                 if action in button_actions:
                     button_actions[action]()
-                elif action in self.custom_actions:
-                    self.custom_actions[action]()
+                elif action in (custom_actions := self.get_custom_actions()):
+                    callback_for_key_sequence(custom_actions[action])()
             except Exception as err:  # pylint: disable=broad-except
                 tooltip("Error: " + repr(err))
+
+    def get_custom_actions(self) -> dict[str, str]:
+        """
+        The profile's custom actions, or the defaults for a profile that has none, which
+        is also what the options dialog shows for it.
+        """
+        assert self.profile is not None
+        return self.profile.custom_actions or self.config["Default Custom Actions"]
 
     def release_held(self, changed: list[tuple[int, bool]]) -> None:
         """Runs the release action of each input in `changed` whose press was handled."""

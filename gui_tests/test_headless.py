@@ -299,6 +299,34 @@ def test_cursor_deadzone_is_round(micro, mw):
         micro.profile.axes_bindings[1] = "Buttons"
 
 
+def test_custom_actions_move_into_profiles(micro, mw):
+    # abdnh's PR 112 (issue 83): custom actions live in each profile, so exporting a
+    # profile carries them, and old ones in the add-on config are moved over once.
+    profile_mod = sys.modules["contanki.profile"]
+    utils = sys.modules["contanki.utils"]
+    name = micro.profile.name
+    path = os.path.join(utils.user_profile_path, profile_mod.slugify(name))
+    config = mw.addonManager.getConfig("contanki")
+    try:
+        micro.profile.save()
+        mw.addonManager.writeConfig(
+            "contanki", {**config, "Custom Actions": {"Old Action": "Ctrl+O"}}
+        )
+        micro.migrate_custom_actions()
+        assert "Custom Actions" not in mw.addonManager.getConfig("contanki")
+        moved = profile_mod.get_profile(name).custom_actions
+        assert moved["Old Action"] == "Ctrl+O"
+        assert "AwesomeTTS" in moved  # the defaults come along
+
+        # A profile without any falls back to the defaults the options dialog shows.
+        micro.profile.custom_actions = {}
+        assert micro.get_custom_actions() == micro.config["Default Custom Actions"]
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+        mw.addonManager.writeConfig("contanki", config)
+
+
 def test_scroll_down_in_the_reviewer(micro, mw):
     model = mw.col.models.by_name("Basic")
     note = mw.col.new_note(model)
