@@ -33,13 +33,15 @@ Brought over from other forks and pull requests, credited in the commits:
 
 ## Installing
 
-This fork isn't on AnkiWeb. Build the package with [uv](https://docs.astral.sh/uv/), then in Anki use Tools → Add-ons → Install from file:
+This fork isn't on AnkiWeb. Download `contanki-continued-<version>.ankiaddon` from the [latest release](https://github.com/turquoise-turtle/anki-contanki-continued/releases/latest), then in Anki use Tools → Add-ons → Install from file and restart Anki. Disable the AnkiWeb Contanki first: with both enabled, every button press acts twice. Your profiles from the AnkiWeb version don't carry over automatically; [diagnostics/RUNTHROUGH.md](diagnostics/RUNTHROUGH.md) (Part B, step 3) explains how to copy them.
+
+To build from source instead, use [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv run --no-project build.py
 ```
 
-This writes `dist/contanki-test.ankiaddon` (the add-on) and `dist/contanki-diagnostics.ankiaddon`. Disable the AnkiWeb Contanki first: with both enabled, every button press acts twice.
+This writes `dist/contanki-test.ankiaddon` (the add-on, its version labelled with the commit) and `dist/contanki-diagnostics.ankiaddon`. `uv run --no-project build.py release` builds the release package from a tagged commit.
 
 ## Reporting problems
 

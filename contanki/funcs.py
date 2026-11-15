@@ -613,7 +613,7 @@ def collapse_deck() -> None:
     )
 
 
-DEBUG_STRING = """See the <a href="https://ankiweb.net/shared/info/1898790263">add-on page</a> for some tips on using Contanki. If you're having trouble or have found a bug you can post on the <a href="https://forums.ankiweb.net/t/contanki-official-support-thread/">official support thread</a> or the <a href="https://github.com/roxgib/anki-contanki/issues">GitHub issue tracker</a>. <br><br>Please copy and paste the following information into your post:<br><br>"""  # pylint: disable=line-too-long
+DEBUG_STRING = """See the <a href="https://github.com/turquoise-turtle/anki-contanki-continued">Contanki Continued page</a> for some tips on using it. This is an unofficial continuation of Contanki, so if you're having trouble or have found a bug, please post on <a href="https://github.com/turquoise-turtle/anki-contanki-continued/issues">its GitHub issue tracker</a> rather than the original's. <br><br>Please copy and paste the following information into your post:<br><br>"""  # pylint: disable=line-too-long
 
 
 def get_debug_str() -> str:

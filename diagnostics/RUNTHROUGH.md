@@ -32,7 +32,7 @@ Keep Contanki enabled during Part A: the report then also records how the instal
 ## Part B: try the test build
 
 1. Tools → Add-ons: select "Contanki - Controller Support" (the AnkiWeb version) and click Toggle Enabled to disable it. Two copies running at once would both act on every button press.
-2. Install from file… → `contanki-test.ankiaddon`. Restart Anki. Its version shows as "v1.0.2 + Micro fixes (…)".
+2. Install from file… → `contanki-test.ankiaddon`. Restart Anki. It shows as "Contanki Continued - Controller Support", version "v1.1.0 + (…)" for a test build or "v1.1.0" for the release download.
 3. Your profiles do not carry over automatically. To keep them, select the old add-on, click View Files, and copy `user_files/profiles/*` into the new add-on's `user_files/profiles/` (View Files on the new one), then restart.
 4. Set up the test cards for the scrolling and Click rows (about five minutes; see "Test cards" below).
 5. Work through the checklist, noting anything that doesn't match:
@@ -69,4 +69,4 @@ Copy the JSON reports into `controller-reports/` in this repository (Git ignores
 
 ## Undo
 
-Tools → Add-ons: delete "Contanki - Controller Support" with the "v1.0.2 + Micro fixes" version and "Contanki Diagnostics", re-enable the AnkiWeb Contanki, and restart Anki.
+Tools → Add-ons: delete "Contanki Continued - Controller Support" and "Contanki Diagnostics", re-enable the AnkiWeb Contanki, and restart Anki.
